@@ -38,7 +38,7 @@ module.exports =
 
   		if (isNaN(share))
   		{
-  			return "You must include numbers. For example: `?shares set gold 10/healing 20/diamonds 60`.";
+  			return "You must include numbers. For example: `?shares set gold 10/healing 20/diamonds 70`.";
   		}
 
       if (share % sharesMltpl != 0)
