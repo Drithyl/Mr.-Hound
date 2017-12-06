@@ -110,7 +110,7 @@ String.prototype.findForm = function ()
 	else return null;
 }
 
-var token = "MjY0MzIwOTMzNDI5MjQ4MDAz.C1JsAA.xLemhXHLcIlh7T5FOADAzC0U2Uo";
+var token = ;	//here goes the unique token corresponding to the Discord app
 
 var introFile = "introduction.info";
 
