@@ -8,3 +8,5 @@ All .csv files are the ones that the bot loads up for the content - stats of wea
 All .js files are the actual working code. The entry point is MrHound.js. It's all kicked off specifically at the "ready" event trigger.
 
 "ecosystem.config.js" and "MrHound - pm2.bat" are files used specifically for integrating the bot in pm2, so not strictly necessary to run the bot.
+
+The token that the bot uses to log in to Discord has been hidden. The variable can be found in the MrHound.js code file.
