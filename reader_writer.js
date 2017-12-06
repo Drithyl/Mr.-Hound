@@ -41,7 +41,7 @@ module.exports =
 		}
 	},
 
-	retrieveRecords: function(dirPath, dfltObj, storageObj, callback = null, fieldEnd = ",", tagSeparator = ":", tagChar = '"')
+	retrieveRecords: function(dirPath, prototypeFn, storageObj, callback = null, fieldEnd = ",", tagChar = '"')
 	{
 		fs.readdir(dirPath, "utf8", (err, files) =>
 	 	{
@@ -54,7 +54,6 @@ module.exports =
 			while (files.length)
 			{
 				var filename = files.shift();
-
 				var data = fs.readFileSync(dirPath + "/" + filename, "utf8");
 
 				if (data == null)
@@ -69,8 +68,8 @@ module.exports =
 					return;
 				}
 
-				storageObj[filename] = Object.assign({}, dfltObj);
-  			module.exports.populateObj(storageObj[filename], data, fieldEnd, tagSeparator, tagChar);
+				storageObj[filename] = prototypeFn();
+  			module.exports.populateObj(storageObj, filename, data.toLowerCase(), fieldEnd, tagChar);
 			}
 
 			if (callback)
@@ -187,26 +186,23 @@ module.exports =
   	return obj;
   },
 
-  //Browses string data to find values of the object-defined properties
-  populateObj: function(obj, data, fieldEnd = ",", tagSeparator = ":", tagChar = '"')
+	populateObj: function(obj, key, data, fieldEnd = ",", tagChar = '"')
   {
-  	for (var key in obj)
+  	for (var prop in obj[key])
   	{
-			var tagStart = data.toLowerCase().indexOf(tagChar + key.toLowerCase() + tagChar);
-			var tagEnd = data.indexOf(tagSeparator, tagStart + 1);
-			var cellStart = data.indexOf(tagSeparator, tagEnd);
-			var cellEnd = data.indexOf(fieldEnd, cellStart + 1);
-
-      if (typeof obj[key] == "function")
+      if (typeof obj[key][prop] == "function")
 			{
 				continue;
 			}
 
+			var tag = data.toLowerCase().indexOf(tagChar + prop.toLowerCase());
+			var cellEnd = data.indexOf(fieldEnd, tag);
+
 			//The default object contains a field that isn't found in the data provided,
 			//so delete it from the default object so that it doesn't get assigned to the final one
-  		if (tagStart == -1)
+  		if (tag == -1)
 			{
-				delete obj[key];
+				delete obj[key][prop];
 				continue;
 			}
 
@@ -216,10 +212,10 @@ module.exports =
 				cellEnd = data.length;
 			}
 
-			obj[key] = cellToVal(data.slice(cellStart, cellEnd), obj[key]);
+			cellToVal(data.slice(tag, cellEnd), obj, key);
 
 			//Remove the key used from the data to prevent conflicts with other similarly named keys
-			data = data.slice(0, tagStart) + data.slice(tagEnd);
+			data = data.slice(0, tag) + data.slice(cellEnd);
   	}
   },
 
@@ -403,6 +399,18 @@ module.exports =
   	});
   },
 
+	saveCharData: function(filePath, obj, spacing = 25, startTag = '"', endTag = '"', spcChar = " ", fieldEnd = ",", endLine = "\n")
+  {
+  	fs.writeFile(filePath, objToCharTable(obj, spacing, startTag, endTag, spcChar, fieldEnd, endLine), (err) =>
+  	{
+  		if (err)
+  		{
+  			this.log("Save failed for the following char data: " + filePath + "\nThe error given is: " + err);
+  			return;
+  		}
+  	});
+  },
+
 	objToLine: function(obj, tagSeparator = "", startTag = "<", endTag = ">", fieldEnd = ",")
 	{
 		var str = "";
@@ -497,115 +505,180 @@ module.exports =
 **********************************************END OF EXPOSURE**********************************************************
 ***********************************************************************************************************************/
 
-//Converts the input from a table cell into a value to be pushed into an object or array
-function cellToVal(str, expectedType = "", tagChar = '"')
+function parseVal(str, expectedType = "")
 {
-	var obj = {};
+	if (!str.length)
+	{
+		return;
+	}
+
+	if (str == "none")
+	{
+		if (Array.isArray(expectedType))
+		{
+			return [];
+		}
+
+		else if (typeof expectedType === "object")
+		{
+			return {};
+		}
+
+		else
+		{
+			return "none";
+		}
+	}
+
+	else if (str == "true")
+	{
+		return true;
+	}
+
+	else if (str == "false")
+	{
+		return false;
+	}
+
+	else if (str.length < 16 && isNaN(+str) == false)
+	{
+		return +str;
+	}
+
+	else
+	{
+		return str;
+	}
+}
+
+function nextTagChar(str, chars = ['"', "(", "<"])
+{
 	var arr = [];
-	var tagInd = 0;
+	for (var i = 0; i < chars.length; i++)
+	{
+		if (str.indexOf(chars[i]) != -1)
+		{
+			arr.push(chars[i]);
+		}
+	}
+
+	if (!arr.length)
+	{
+		return null;
+	}
+
+	arr.sort(function(a, b){return str.indexOf(a) - str.indexOf(b);});
+	return arr[0];
+}
+
+function findNextEndTag(str, startIndex = "1", endTag = '"', toAvoid = ["(", ")", "<", ">"])
+{
+	var endValTag = str.indexOf(endTag, startIndex);
+	var cutStr = str.slice(0, endValTag);
+
+	while (endValTag != -1)
+	{
+		for (var i = 0; i < toAvoid.length; i+=2)
+		{
+			//The replace is needed to escape the special characters of the RegExp like all brackets, or it will interpret
+			//it as an unterminated RegExp
+			var openMatches = cutStr.match(new RegExp(toAvoid[i].replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1"), "g"));
+			var closeMatches = cutStr.match(new RegExp(toAvoid[i+1].replace(/([.?*+^$[\]\\(){}|-])/g, "\\$1"), "g"));
+
+			if (openMatches != null && (closeMatches == null || (openMatches.length != closeMatches.length && openMatches.length > 0)))
+			{
+				endValTag = str.indexOf(endTag, endValTag + 1);
+				cutStr = str.slice(0, endValTag);
+				break;
+			}
+
+			//End of loop
+			if (i + 2 >= toAvoid.length)
+			{
+				return endValTag;
+			}
+		}
+	}
+
+	return -1;
+}
+
+function cellToVal(str, storageObj, key, tagChar = '"')
+{
+	var arr = [];
+	var values = [];
+	var loopIndex = 0;
+	var loopCounter = 0;
 	var match = str.match(new RegExp(tagChar, "g"));
-	var values = 0; //the number of matches if halved as each value has two tag characters around it
 
-	if (match == null)
+	if (match == null || match.length < 2)
 	{
-		return obj;
+		module.exports.log("Key " + key + " was found, but no more than a tag character was.");
+		delete storageObj[key];
+		return;
 	}
 
-	else values = match.length / 2;
-
-	for (i = 0; i < values; i++)
+	if (storageObj == null)
 	{
-		var nextTag = str.indexOf(tagChar, tagInd) + 1;
-		var val = str.slice(nextTag, str.indexOf(tagChar, nextTag)).trim();
-
-		//Set the tag index for the next iteration already
-		tagInd = str.indexOf(tagChar, nextTag) + 1;
-
-		//The val is basically equal to "". It's necessary to catch it here because otherwise the slice function of
-		//var val declatarion will return a 0, and the bot will take that as val's value (when it really is an empty string)
-		if (nextTag == str.indexOf(tagChar, nextTag))
-		{
-			obj[ids.EMPTY] = ++obj[ids.EMPTY] || 1;
-			continue;
-		}
-
-		if (val == "none")
-		{
-			if (Array.isArray(expectedType))
-			{
-				//arr will be empty
-				return [];
-			}
-
-			//obj will be empty
-			else if (typeof expectedType === "object")
-			{
-				return {};
-			}
-
-			else
-			{
-				return "none";
-			}
-		}
-
-		else if (val == "true")
-		{
-			return true;
-		}
-
-		else if (val == "false")
-		{
-			return false;
-		}
-
-		else if (val.length < 16 && (Number.isInteger(+val) || Number.isFloat(+val)))
-		{
-			return +val;
-		}
-
-		else if (typeof val == "string")
-		{
-			if (typeof expectedType === "string")
-			{
-				return val;
-			}
-
-			else if (Array.isArray(expectedType))
-			{
-				arr.push(val);
-				continue;
-			}
-
-			if (val.indexOf("(") == -1)
-			{
-				obj[val] = val;
-				continue;
-			}
-
-			else
-			{
-				var name = val.slice(0, val.indexOf("(")).trim().toLowerCase();
-				var amnt = +val.slice(val.indexOf("(") + 1, val.indexOf(")"));
-
-				if (name == ids.EMPTY || name == ids.LOST || name == ids.USED)
-				{
-					obj[name] = obj[name] + amnt || amnt;
-				}
-
-				else obj[name] = amnt;		//If there are parenthesis then there is a value to be added
-			}
-		}
-
-		else return val;
+		storageObj = {};
 	}
 
-	if (Array.isArray(expectedType))
+	if (storageObj[key] == null)
 	{
-		return arr;
+		storageObj = Object.assign(storageObj, {[key]: {}});
 	}
 
-	else return obj;
+	while (str.indexOf(tagChar, loopIndex) != -1 && loopCounter < 50)
+	{
+		loopCounter++;
+		var nameEndChar = nextTagChar(str.slice(str.indexOf(tagChar, loopIndex) + 1));
+
+		if (nameEndChar == null)
+		{
+			module.exports.log("The raw string data " + str + " has a format issue, no tag character was found after it.");
+			return;
+		}
+
+		str = str.slice(0, str.indexOf(nameEndChar, loopIndex + 1)).trim() + str.slice(str.indexOf(nameEndChar, loopIndex + 1));
+		var nextTag = str.indexOf(tagChar, loopIndex) + 1;
+		var nameEndCharIndex = str.indexOf(nameEndChar, nextTag);
+		var endValTag = findNextEndTag(str, nextTag);
+
+		if (endValTag == -1)
+		{
+			module.exports.log("Something went wrong when trying to find the endValTag for the string " + str + ". It's probably missing a " + tagChar + ".");
+			return;
+		}
+
+		loopIndex = endValTag + 1;
+		propName = str.slice(nextTag, nameEndCharIndex);
+
+		if (nameEndChar == '"')
+		{
+			if (propName == "none")
+			{
+				storageObj[key] = {};
+			}
+
+			else storageObj[key][propName] = propName;
+		}
+
+		else if (nameEndChar == "<")
+		{
+			storageObj[key][propName] = parseVal(str.slice(nameEndCharIndex + 2, endValTag - 2));
+		}
+
+		else if (nameEndChar == "(")
+		{
+			cellToVal(str.slice(nameEndCharIndex + 1, endValTag - 1), storageObj[key], propName);
+		}
+
+		else
+		{
+			module.exports.log("The raw string data " + str + " has a problem. No conditional entry on how to deal with it was found.");
+			return;
+		}
+	}
 }
 
 function CSVCellToVal(str, expectedType = "", separator = ", ")
@@ -736,6 +809,28 @@ function objToStr(obj, spacing = 25, translateID = false, endLine = "\n", nameTa
 	return str.slice(0, str.lastIndexOf(fieldEnd));
 }
 
+function objToCharTable(obj, spacing = 25, startTag = '"', endTag = '"', spcChar = " ", fieldEnd = ",", endLine = "\n")
+{
+	var str = "";
+
+	if (obj == null)
+	{
+		return "";
+	}
+
+	for (var key in obj)
+	{
+		if (typeof obj[key] === "function")
+		{
+			continue;
+		}
+
+		str += (startTag + key.capitalize() + " ").width(spacing) + valToCharCell(obj[key], startTag, endTag, spcChar) + endTag + fieldEnd + endLine;
+	}
+
+	return str.slice(0, str.lastIndexOf(fieldEnd));
+}
+
 //Converts an object into a table string to be saved in an external file
 function tableToString(table, is2D = false, spacing = 17, spcChar = " ", itemStart = "<", itemEnd = ">", fieldEnd = ",", tagSeparator = ":", tagChar = '"')
 {
@@ -804,7 +899,7 @@ function valToCSVCell(val, separator = ', ')
 
 		for (var key in val)
 		{
-			if (val[key] != key && (Number.isInteger(val[key]) || Number.isFloat(val[key])))
+			if (val[key] != key && isNaN(val[key]) == false)
 			{
 				str += key + " (" + val[key] + ")" + separator;
 			}
@@ -831,6 +926,42 @@ function valToCSVCell(val, separator = ', ')
 	}
 }
 
+function valToCharCell(val, startTag = '"', endTag = '"', spcChar = " ")
+{
+	if (typeof val == "object")
+	{
+		var str = "(";
+
+		if ((Array.isArray(val) && val.length == false) || !Object.keys(val).length)
+		{
+			return "(" + startTag + "none" + endTag + ")";
+		}
+
+		for (var key in val)
+		{
+			//This is a number, and not the same one as the key (not the ID key)
+			if (val[key] != key && isNaN(val[key]) == false)
+			{
+				str += startTag + key + " <" + startTag + val[key] + endTag + ">" + endTag + spcChar;
+			}
+
+			else
+			{
+				if (key == val[key])
+				{
+					str += startTag + key + endTag + spcChar;
+				}
+
+				else str += startTag + key + spcChar + valToCharCell(val[key], startTag, endTag, spcChar) + endTag + spcChar;
+			}
+		}
+
+		return str.slice(0, str.lastIndexOf(spcChar)) + ")";
+	}
+
+	else return "<" + startTag + val + endTag + ">";
+}
+
 //Converts a value into a table cell to be saved in an external file
 function valToCell(val, translateID = false, startTag = '"', endTag = '"', spcChar = " ")
 {
@@ -845,14 +976,15 @@ function valToCell(val, translateID = false, startTag = '"', endTag = '"', spcCh
 
 		for (var key in val)
 		{
-			if (val[key] != key && (Number.isInteger(val[key]) || Number.isFloat(val[key])))
+			//This is a number, and not the same one as the key (not the ID key)
+			if (val[key] != key && isNaN(val[key]) == false)
 			{
 				if (translateID && ids[key] && /[\d]/.test(key))
 				{
-					str += startTag + ids[key] + " (" + val[key] + ")" + endTag + spcChar;
+					str += startTag + ids[key] + " (" + startTag + val[key] + endTag + ")" + endTag + spcChar;
 				}
 
-				else str += startTag + key + " (" + val[key] + ")" + endTag + spcChar;
+				else str += startTag + key + " (" + startTag + val[key] + endTag + ")" + endTag + spcChar;
 			}
 
 			else
@@ -862,7 +994,17 @@ function valToCell(val, translateID = false, startTag = '"', endTag = '"', spcCh
 					str += startTag + ids[val[key]] + endTag + spcChar;
 				}
 
-				else str += startTag + val[key] + endTag + spcChar;
+				//The value needs to be re-evaluated as it can be a new object
+				else
+				{
+					//These will be non-numerical properties, like "animal"
+					if (key == val[key])
+					{
+						str += valToCell(val[key], translateID, startTag, endTag, spcChar) + spcChar;
+					}
+
+					else str += startTag + key + spcChar + "(" + valToCell(val[key], translateID, startTag, endTag, spcChar) + ")" + endTag + spcChar;
+				}
 			}
 		}
 

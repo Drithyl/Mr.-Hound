@@ -38,7 +38,7 @@ module.exports =
 
   		if (isNaN(share))
   		{
-  			return "You must include numbers. For example: `?shares set gold 10/healing 20/diamonds 70`.";
+  			return "You must include numbers. For example: `?shares set gold 10/healing 20/diamonds 60`.";
   		}
 
       if (share % sharesMltpl != 0)
@@ -124,14 +124,13 @@ module.exports =
   			result += "The task " + task + " was not recognized. Please notify this as a bug.";
       }
 
-      if (this.methods[task].factor(character) <= 0)
+      if (typeof character[ids.SHARES] != "object" || this.methods[task].factor(character) <= 0)
       {
         continue;
       }
 
       if (character[ids.CURR_HP] < 0 && task != ids.HEALING && task != ids.RECUP)
       {
-        console.log(task + " not kicking in.");
         continue;
       }
 
@@ -144,7 +143,7 @@ module.exports =
 
 function restHeal(character)
 {
-  if (character[ids.CURR_HP] < character.getTtlHP())
+  if (character[ids.CURR_HP] < character.getTtlHP(false))
   {
     character.heal(character.getFinalHealingFactor());
 

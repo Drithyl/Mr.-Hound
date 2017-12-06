@@ -27,6 +27,8 @@ module.exports =
   "253551130712342528": "Celestial Clockmaker",
   "263002098055118848": "Hound",
 
+  ENCOUNTER: "encounter",
+
   //Char/form stats
   LVL: "level",
   LVL_POINTS: "level-up points",
@@ -91,6 +93,7 @@ module.exports =
   MISC: "misc",
 
   //parts
+  NUMBER: "number",
   EYE: "eye",
   ARM: "arm",
   LEG: "leg",
@@ -112,13 +115,16 @@ module.exports =
   //form props
   ANIMAL: "animal",
   AWE: "awe",
-  BERSERK: "berserker",
+  AMBIDEXTROUS: "ambidextrous",
+  BERSERK: "berserk",
   COLD_AURA: "cold aura",
+  DISPLACEMENT: "displacement",
   ETHEREAL: "ethereal",
   FIRE_SHLD: "fire shield",
   FIRSTSHAPE: "firstshape",
   GLAMOUR: "glamour",
   HEAT_AURA: "heat aura",
+  INVUL: "invulnerability",
   SECONDSHAPE: "secondshape",
   SHAPECHANGE: "shapechange",
   STONE: "stone-being",
@@ -155,6 +161,7 @@ module.exports =
   NO_STR: "strength not added",
   ONCE: "single use",
   REINVIG: "reinvigoration",
+  RELOAD: "reload",
   REQ_LIFE: "requires life",
   REQ_MIND: "requires mind",
   SIEGE: "siege bonus",
@@ -162,6 +169,7 @@ module.exports =
   STUN: "stun",
   TWIST_FATE: "twist fate",
   UNDEADBANE: "undeadbane",
+  UNREPELLED: "cannot be repelled",
   ENHANCE: "enhance",
 
   //consumable props
@@ -263,6 +271,7 @@ module.exports =
   DEMON: "demon",
   INANIMATE: "inanimate",
   MAGIC_BEING: "magic being",
+  STARTER: "starting form",
   TAGLESS: "tagless",
   UNDEAD: "undead",
 

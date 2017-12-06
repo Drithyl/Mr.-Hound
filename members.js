@@ -13,7 +13,7 @@ var vaultFile = "vault";
 var decPlaces = 5;
 
 var goldFactor = 0.7;
-var gemFactor = 0.16;
+var gemFactor = 0.1;
 var trainFactor = 0.05;
 var formTrainFactor = 0.1;
 var healingFactor = 15;
@@ -49,8 +49,8 @@ module.exports =
   init: function(guild)
   {
 		myGuild = guild;
-		rw.retrieveRecords("characters", defineMember(), this.list);
-		rw.retrieveRecords("vaults", defineVault(), this.vault);
+		rw.retrieveRecords("characters", defineMember, this.list);
+		rw.retrieveRecords("vaults", defineVault, this.vault);
     return this;
   },
 
@@ -172,6 +172,8 @@ function defineMember()
 		"getSlotsNbr": getSlotsNbr,
 		"getWeapons": getWeapons,
 		"getRepelWeapons": getRepelWeapons,
+		"getAttacks": getAttacks,
+		"getRepels": getRepels,
 		"getEquippedWeapons": getEquippedWeapons,
 		"getIntrinsicWeapons": getIntrinsicWeapons,
 		"getUnusableParts": getUnusableParts,
@@ -182,6 +184,7 @@ function defineMember()
 		"getFinalHealingFactor": getFinalHealingFactor,
 		"getRecupFactor": getRecupFactor,
 		"getTtlHP": getTtlHP,
+		"getTtlShapeHP": getTtlShapeHP,
 		"getTtlProt": getTtlProt,
 		"getTtlShieldProt": getTtlShieldProt,
 		"getTtlAtt": getTtlAtt,
@@ -214,6 +217,7 @@ function defineAbstractMember()
 		[ids.ACTIVE_EFF]:					{},
 		[ids.FORM]: 				  		"",
 	  [ids.SIZE]:           		0,
+		[ids.HP_INC]:							0,
 	  [ids.MAX_HP]:         		0,
 	  [ids.CURR_HP]:        		0,
 		[ids.REM_HP]:							0,
@@ -270,10 +274,13 @@ function defineAbstractMember()
 		"getSlotsNbr": getSlotsNbr,
 		"getWeapons": getWeapons,
 		"getRepelWeapons": getRepelWeapons,
+		"getAttacks": getAttacks,
+		"getRepels": getRepels,
 		"getEquippedWeapons": getEquippedWeapons,
 		"getIntrinsicWeapons": getIntrinsicWeapons,
 		"getUnusableParts": getUnusableParts,
 		"getTtlHP": getTtlHP,
+		"getTtlShapeHP": getTtlShapeHP,
 		"getTtlProt": getTtlProt,
 		"getTtlShieldProt": getTtlShieldProt,
 		"getTtlAtt": getTtlAtt,
@@ -409,10 +416,20 @@ function battleReady(heal = false, t = this)
 {
 	if (heal)
 	{
+		if (t[ids.PROPS][ids.FIRSTSHAPE])
+		{
+			changeShape(t[ids.PROPS][ids.FIRSTSHAPE], 0, t);
+		}
+
 		t[ids.CURR_HP] = t[ids.MAX_HP];
 	}
 
 	t[ids.STATUS] = {[ids.FAT]: 0};
+
+	if (t[ids.PROPS][ids.GLAMOUR])
+	{
+		t[ids.STATUS][ids.GLAMOUR] = 1 + (Math.floor(t[ids.PATHS][ids.AIR]) || 0);
+	}
 
 	if (t[ids.MISC]["t9"])
 	{
@@ -438,13 +455,13 @@ function printCharSheet(spacing = 24, t = this)
 		("Task factors: ").width(spacing)														+	tasks.getFactors(t) + "\n" +
 		(ids.FORM.capitalize() + ": ").width(spacing)								+ "<" + t[ids.FORM].findForm().name + ">\n" +
 		(ids.SIZE.capitalize() + ": ").width(spacing)								+ "<" + t[ids.SIZE] + ">\n" +
-		("HP: ").width(spacing)																			+ "<" + ((t[ids.CURR_HP] + (t[ids.REM_HP] * Math.pow(10, -1 * decPlaces)).truncate(decPlaces))) + "/" + t[ids.MAX_HP] + " (" + getTtlHP(t) + ")>\n" +
+		("HP: ").width(spacing)																			+ "<" + ((t[ids.CURR_HP] + (t[ids.REM_HP] * Math.pow(10, -1 * decPlaces)).truncate(decPlaces))) + "/" + t[ids.MAX_HP] + " (" + getTtlHP(true, t) + ")>\n" +
 		(ids.AFFL.capitalize() + ": ").width(spacing)								+ "<" + rw.printProps(t[ids.AFFL]) + ">\n" +
 		("Protection: ").width(spacing);
 
 	for (var part in t[ids.PROT])
 	{
-		sheetStr += part + " <" + t[ids.PROT][part] + "/" + getTtlProt(part, t) + "> ";
+		sheetStr += part + " <" + t[ids.PROT][part] + "/" + getTtlProt(part, false, t) + "> ";
 	}
 
 	sheetStr += "\n" +
@@ -557,10 +574,12 @@ function printVault(spacing = 24, t = this)
 function printTasks(spacing = 30, t = this)
 {
 	var healFactor = getFinalHealingFactor(t);
+	var maxHP = (t[ids.PROPS][ids.FIRSTSHAPE]) ? getTtlShapeHP(true, false, t) : getTtlHP(false, t);
 	var currHP = (t[ids.CURR_HP] + (t[ids.REM_HP] * Math.pow(10, -1 * decPlaces)).truncate(decPlaces));
 
-	var obj = {[ids.GOLD]: "Gold gain (g/min): ", [ids.ATK]: "Attack gain (atk/min): ", [ids.DEF]: "Defence gain (def/min): ",
-						 [ids.PREC]: "Precision gain (prc/min): ", [ids.BLOOD_G]: "Bloodstone chance (%): ", [ids.AIR_G]: "Diamond chance (%): ",
+	var trainStats = {[ids.ATK]: "Attack gain (atk/min): ", [ids.DEF]: "Defence gain (def/min): ", [ids.PREC]: "Precision gain (prc/min): "};
+
+	var otherStats = {[ids.GOLD]: "Gold gain (g/min): ", [ids.BLOOD_G]: "Bloodstone chance (%): ", [ids.AIR_G]: "Diamond chance (%): ",
 						 [ids.NATURE_G]: "Emerald chance (%): ", [ids.DEATH_G]: "Onyx chance (%): ", [ids.ASTRAL_G]: "Pearl chance (%): ",
 						 [ids.FIRE_G]: "Ruby chance (%): ", [ids.WATER_G]: "Sapphire chance (%): ", [ids.EARTH_G]: "Topaz chance (%): "};
 
@@ -570,18 +589,18 @@ function printTasks(spacing = 30, t = this)
 
 	if (currHP < 0)
 	{
-		var ticksToZero = Math.floor((0 - currHP) / healFactor);
+		var ticksToZero = Math.floor(Math.abs(currHP) / healFactor);
 		var hoursToZero = Math.floor(ticksToZero / 60);
-		var ticksToMax = Math.floor(getTtlHP(t) / getSharesHealingFactor(t));
+		var ticksToMax = Math.floor(maxHP / getSharesHealingFactor(t));
 		var hoursToMax = Math.floor(ticksToMax / 60);
-		str += hoursToZero + "h and " + Math.floor(ticksToZero % 60) + "m to resume tasks";
+		str += hoursToZero + "h" + Math.floor(ticksToZero % 60) + "m to resume tasks";
 
 		if (t[ids.AFFL][ids.DISEASED])
 		{
 			str += ". You will then stop healing naturally until the disease is healed.\n";
 		}
 
-		else str += " and an additional " + hoursToMax + "h and " + Math.floor(ticksToMax % 60) + "m to heal completely.\n";
+		else str += " and an additional " + hoursToMax + "h" + Math.floor(ticksToMax % 60) + "m to heal completely.\n";
 	}
 
 	else if (t[ids.AFFL][ids.DISEASED])
@@ -591,19 +610,57 @@ function printTasks(spacing = 30, t = this)
 
 	else
 	{
-		var ticksToMax = Math.floor((getTtlHP(t) - currHP) / healFactor);
+		var ticksToMax = Math.floor((maxHP - currHP) / healFactor);
 		var hoursToMax = Math.floor(ticksToMax / 60);
-		str += hoursToMax + "h and " + Math.floor(ticksToMax % 60) + "m to heal completely.\n";
+		str += hoursToMax + "h" + Math.floor(ticksToMax % 60) + "m to heal completely.\n";
 	}
 
 	str += "Recuperation chance (%): ".width(spacing) + ("<+" + tasks.methods[ids.RECUP].factor(t) + "> ").width(15) + "(^).\n\n";
 
-	for (var key in obj)
+	for (var key in trainStats)
 	{
-		str += obj[key].width(spacing) + ("<+" + tasks.methods[key].factor(t) + "> ").width(15) + "(" + (t[ids.SHARES][key] || 0) + " shares).\n\n";
+		str += trainStats[key].width(spacing) + ("<+" + tasks.methods[key].factor(t) + "> ").width(15) + "(" + (t[ids.SHARES][key] || 0) + " shares). " +
+					 daysToStat(t[key], Math.floor(t[key] + 1), tasks.methods[key].factor(t)) + "d" +
+					 Math.floor(hoursToStat(t[key], Math.floor(t[key] + 1), tasks.methods[key].factor(t)) % 24) + "h" +
+					 Math.floor(ticksToStat(t[key], Math.floor(t[key] + 1), tasks.methods[key].factor(t)) % 60) + "m left to raise your " + key + ".\n\n";
+	}
+
+	for (var key in otherStats)
+	{
+		str += otherStats[key].width(spacing) + ("<+" + tasks.methods[key].factor(t) + "> ").width(15) + "(" + (t[ids.SHARES][key] || 0) + " shares).\n\n";
 	}
 
 	return str.toBox();
+}
+
+function ticksToStat(currentStat, goal, factor)
+{
+	if (factor == 0)
+	{
+		return 0;
+	}
+
+	return Math.floor(((goal) - currentStat) / factor);
+}
+
+function hoursToStat(currentStat, goal, factor)
+{
+	if (factor == 0)
+	{
+		return 0;
+	}
+
+	return Math.floor(Math.floor(((goal) - currentStat) / factor) / 60);
+}
+
+function daysToStat(currentStat, goal, factor)
+{
+	if (factor == 0)
+	{
+		return 0;
+	}
+
+	return Math.floor(Math.floor(Math.floor(((goal) - currentStat) / factor) / 60) / 24);
 }
 
 function cleanVault(vault)
@@ -1112,7 +1169,7 @@ function hasHealableAffl(t = this)
 
 function isHealthy(t = this)
 {
-	var maxHP = getTtlHP(t);
+	var maxHP = getTtlHP(false, t);
 
 	if (t[ids.CURR_HP] < maxHP)
 	{
@@ -1152,7 +1209,7 @@ function lesserRecuperate(chance = recupChance, t = this)
 
 	if (roll > chance)
 	{
-		var share = (t[ids.CURR_HP] < 0) ? 1 : ((t[ids.SHARES][type] * 0.01 + 0.5) || 0.5);
+		var share = (t[ids.CURR_HP] < 0) ? 1 : ((t[ids.SHARES][ids.RECUP] * 0.01 + 0.5) || 0.5);
 		var addedChance = t[ids.BASE_FACTORS][ids.RECUP] * share;
 		t[ids.FACTORS][ids.RECUP] = t[ids.FACTORS][ids.RECUP] + addedChance || addedChance;
 		currency.objTruncate(t[ids.FACTORS], ids.RECUP, 5);
@@ -1181,8 +1238,8 @@ function recuperate(chance = recupChance, t = this)
 
 	if (roll > chance)
 	{
-		var share = (t[ids.CURR_HP] < 0) ? 1 : ((t[ids.SHARES][type] * 0.01 + 0.5) || 0.5);
-		var addedChance = t[ids.BASE_FACTORS][ids.RECUP] * share;
+		var share = (t[ids.CURR_HP] < 0) ? 1 : ((t[ids.SHARES][ids.RECUP] * 0.01 + 0.5) || 0.5);
+		var addedChance = (t[ids.BASE_FACTORS][ids.RECUP] * share) * 2;
 		t[ids.FACTORS][ids.RECUP] = t[ids.FACTORS][ids.RECUP] + addedChance || addedChance;
 		currency.objTruncate(t[ids.FACTORS], ids.RECUP, 5);
 		return "";
@@ -1206,7 +1263,7 @@ function recuperate(chance = recupChance, t = this)
 
 function heal(amnt, isPercentage = false, setAt = false, t = this)
 {
-	var maxHP = getTtlHP(t);
+	var maxHP = getTtlHP(false, t);
 
 	if (amnt <= 0)
 	{
@@ -1285,7 +1342,8 @@ function applyDmg(dmg, type, hitLoc, isStun, t = this)
 
 	else if (type == ids.POISON)
 	{
-		t[ids.STATUS][ids.POISONED] = t[ids.STATUS][ids.POISONED] + dmg || dmg;
+		var poisonApplied = ((t[ids.STATUS][ids.POISONED] || 0) + dmg).cap(Math.floor(t[ids.MAX_HP]));
+		t[ids.STATUS][ids.POISONED] = poisonApplied;
 		return t.name + ": +" + dmg + " " + ids.POISON + " (" + t[ids.STATUS][ids.POISONED] + " TTL). ";
 	}
 
@@ -1345,7 +1403,7 @@ function ignite(dmg, type, t = this)
 
 function tickPoison(t = this)
 {
-	if (t[ids.STATUS][ids.POISONED] <= 0)
+	if (t[ids.STATUS][ids.POISONED] == null || t[ids.STATUS][ids.POISONED] <= 0)
 	{
 		return "";
 	}
@@ -1363,32 +1421,34 @@ function tickPoison(t = this)
 
 function tickCold(t = this)
 {
+	var dmg = Math.floor((Math.random() * 11)) + 2;
+	var result = t.name + " is freezing. " + addFatigue(dmg, t);
 	var thawChance = (t[ids.PROPS][ids.RES_COLD]) ? 25 + (t[ids.PROPS][ids.RES_COLD] * 5) : 25;
 	var roll = Math.floor((Math.random() * 100)) + 1;
-	var dmg = Math.floor((Math.random() * 11)) + 2;
 
 	if (roll <= thawChance)
 	{
 		delete t[ids.STATUS][ids.FREEZING];
-		return t.name + " thawed. ";
+		result += "The ice thawed. ";
 	}
 
-	return "Freezing. " + addFatigue(dmg, t);
+	return result;
 }
 
 function tickFire(t = this)
 {
+	var dmg = Math.floor(Math.random() * t[ids.SIZE]) + 1;
+	var result = t.name + " is burning. " + reduceHP(dmg, ids.FIRE, ids.BODY, true, t);
 	var extinguishChance = (t[ids.PROPS][ids.RES_FIRE]) ? 25 + (t[ids.PROPS][ids.RES_FIRE] * 5) : 25;
 	var roll = Math.floor((Math.random() * 100)) + 1;
-	var dmg = t[ids.SIZE];
 
 	if (roll <= extinguishChance)
 	{
 		delete t[ids.STATUS][ids.ON_FIRE];
-		return t.name + ": fire extinguished. ";
+		result += "The fire was extinguished. ";
 	}
 
-	return "Burning. " + reduceHP(dmg, ids.FIRE, ids.BODY, true, t);
+	return result;
 }
 
 function tickParalysis(t = this)
@@ -1429,7 +1489,11 @@ function endEffects(roundLimit = 20, t = this)
 
 	if (t[ids.STATUS][ids.POISONED])
 	{
-		result += reduceHP(t[ids.STATUS][ids.POISONED], ids.POISON, ids.BODY, false, t);
+		if (Math.floor(t[ids.STATUS][ids.POISONED] * 0.5) > 0)
+		{
+			result += reduceHP(Math.floor(t[ids.STATUS][ids.POISONED] * 0.5), ids.POISON, ids.BODY, false, t);
+		}
+
 		delete t[ids.STATUS][ids.POISONED];
 	}
 
@@ -1475,36 +1539,35 @@ function changeShape(newShapeID, dmgCarried = 0, t = this)
 
 	for (var stat in newShape)
 	{
-		if ((!Number.isInteger(newShape[stat]) && !Number.isFloat(newShape[stat])) || stat == "id")
+		if (isNaN(newShape[stat]) || stat == "id" || isNaN(t[stat]))
 		{
 			continue;
 		}
 
-		t[stat] += newShape[stat] - t[stat];
+		t[stat] = newShape[stat] + (t[stat] - currShape[stat]).lowerCap(0);
 	}
 
 	for (var slot in currShape[ids.SLOTS])
 	{
-		if (newShape[ids.SLOTS] == null)
+		if (newShape[ids.SLOTS][slot] == null)
 		{
-			if (t[slot][ids.LOST])
+			if (t[slot][ids.LOST] != null)
 			{
-				t[ids.STATUS][slot][ids.LOST] = t[slot][ids.LOST];
-				delete t[slot];
-				t[slot] = {[ids.LOST]: t[ids.STATUS][slot][ids.LOST]};
-				delete t[ids.STATUS][slot];
+				var slotsLost = t[slot][ids.LOST];
+				t[slot] = {[ids.LOST]: slotsLost};
 			}
 
-			unequipSlots([slot], t);
-			delete t[slot];
+			else delete t[slot];
+			t[t.id].unequipSlots([slot]);
 		}
 	}
 
-	t[ids.CURR_HP] = newShape[ids.MAX_HP] - dmgCarried;
 	t[ids.FORM] = newShape.id;
 	delete t[ids.PROPS];
 	t[ids.PROPS] = Object.assign({}, newShape[ids.PROPS]);
-	return t.name + " turns into a " + t[ids.FORM].findForm().name + ". ";
+	t[ids.MAX_HP] = newShape[ids.MAX_HP] + (newShape.getHPIncrement() * t[ids.HP_INC]);
+	t[ids.CURR_HP] = t[ids.MAX_HP] - dmgCarried;
+	return t.name + " turns into a " + newShape.name + ". ";
 }
 
 function revertShape(originalShapeID, currHP = 1, t = this)
@@ -1514,31 +1577,35 @@ function revertShape(originalShapeID, currHP = 1, t = this)
 
 	for (var stat in originalShape)
 	{
-		if (!Number.isInteger(originalShape[stat]) || !Number.isFloat(originalShape[stat]) || stat == "id")
+		if (isNaN(originalShape[stat]) || isNaN(t[stat]) || stat == "id")
 		{
 			continue;
 		}
 
-		t[stat] += originalShape[stat] - t[stat];
+		t[stat] = originalShape[stat] + (t[stat] - currShape[stat]).lowerCap(0);
 	}
 
 	for (var slot in originalShape[ids.SLOTS])
 	{
 		if (currShape[ids.SLOTS][slot] == null)
 		{
-			t[slot] = {[ids.EMPTY]: originalShape[ids.SLOTS][slot]};
-
-			if (t[slot] && t[slot][ids.LOST])
+			if (t[slot] && t[slot][ids.LOST] && originalShape[ids.SLOTS][slot] > t[slot][ids.LOST])
 			{
-				t[slot][ids.EMPTY] -= t[ids.STATUS][slot][ids.LOST];
+				t[slot][ids.EMPTY] = originalShape[ids.SLOTS][slot] - t[slot][ids.LOST];
+			}
+
+			else if (t[slot] == null)
+			{
+				t[slot] = {[ids.EMPTY]: originalShape[ids.SLOTS][slot]};
 			}
 		}
 	}
 
-	t[ids.CURR_HP] = currHP;
 	t[ids.FORM] = originalShape.id;
 	delete t[ids.PROPS];
 	t[ids.PROPS] = Object.assign({}, originalShape[ids.PROPS]);
+	t[ids.CURR_HP] = currHP;
+	t[ids.MAX_HP] = originalShape[ids.MAX_HP] + (originalShape.getHPIncrement() * t[ids.HP_INC]);
 }
 
 function reduceHP(dmg, type, hitLoc, afflicts = true, t = this)
@@ -1548,7 +1615,17 @@ function reduceHP(dmg, type, hitLoc, afflicts = true, t = this)
 
 	var remainingHP = Math.floor(t[ids.CURR_HP]) - finalDmg;
 
-	if (remainingHP < t[ids.MAX_HP] * -1)
+	if (t[ids.PROPS][ids.FIRSTSHAPE] || t[ids.PROPS][ids.SECONDSHAPE])
+	{
+		var combinedHP = getTtlShapeHP(false, true, t);
+
+		if (remainingHP < combinedHP * -1)
+		{
+			remainingHP = combinedHP * -1;
+		}
+	}
+
+	else if (remainingHP < t[ids.MAX_HP] * -1)
 	{
 		remainingHP = t[ids.MAX_HP] * -1;
 	}
@@ -1559,6 +1636,35 @@ function reduceHP(dmg, type, hitLoc, afflicts = true, t = this)
 	if (finalDmg <= 0)
 	{
 		return "";
+	}
+
+	if (t[ids.PROPS][ids.BERSERK] && t[ids.STATUS][ids.BERSERK] == null)
+	{
+		var moraleRoll = dice.DRN() + getTtlMor(true, t);
+		var difficulty = dice.DRN() + 12;
+
+		if (moraleRoll > difficulty)
+		{
+			t[ids.STATUS][ids.BERSERK] = t[ids.PROPS][ids.BERSERK];
+			result += t.name + " goes berserk (" + t[ids.STATUS][ids.BERSERK] + ").";
+		}
+	}
+
+	if (t[ids.STATUS] && t[ids.STATUS][ids.ENCOUNTER])
+	{
+		var battle = t[ids.STATUS][ids.ENCOUNTER];
+
+		if (t.id == battle.challenger.id)
+		{
+			battle.challengerDmgTaken += finalDmg;
+			battle.offenderDmgDealt += finalDmg;
+		}
+
+		else if (t.id == battle.offender.id)
+		{
+			battle.offenderDmgTaken += finalDmg;
+			battle.challengerDmgDealt += finalDmg;
+		}
 	}
 
 	t[ids.CURR_HP] = remainingHP;
@@ -1650,7 +1756,7 @@ function calcAffliction(dmg, type, hitLoc, t = this)
 		}
 	}
 
-	else
+	else if (hitLoc.includes(ids.BODY))
 	{
 		var arr = [ids.DISEASED, ids.CHEST_WOUND, ids.BATTLE_FRIGHT, ids.NEVER_HEAL_WOUND];
 		var nbr = Math.floor((Math.random() * arr.length));
@@ -1683,7 +1789,7 @@ function updateAfflictions(t = this)
 		}
 	}
 
-	if (t[ids.HANDS] && t[ids.HANDS][ids.LOST] && armsLost < t[ids.HANDS][ids.LOST])
+	if (form[ids.SLOTS][ids.HANDS] && t[ids.HANDS] && t[ids.HANDS][ids.LOST] && armsLost < t[ids.HANDS][ids.LOST])
 	{
 		var diff = t[ids.HANDS][ids.LOST] - armsLost;
 		t[ids.HANDS][ids.LOST] = armsLost;
@@ -1737,6 +1843,7 @@ function addFatigue(amnt, t = this)
 
 	if (t[ids.STATUS][ids.FAT] >= 100)
 	{
+		delete t[ids.PROPS][ids.BERSERK];
 		t[ids.STATUS][ids.UNCONSCIOUS] = true;
 		str += t.name + " falls unconscious.";
 	}
@@ -1830,6 +1937,38 @@ function getRepelWeapons(atkWpn, t = this)
 
 		nextLength++;
 		arr.push(weapons[i]);
+	}
+
+	return arr;
+}
+
+function getAttacks(t = this)
+{
+	var wpns = getWeapons(t);
+	var arr = [];
+
+	for (var i = 0; i < wpns.length; i++)
+	{
+		for (var j = 0; j < wpns[i][ids.NBR_ATKS]; j++)
+		{
+			arr.push(wpns[i]);
+		}
+	}
+
+	return arr;
+}
+
+function getRepels(atkWpn, t = this)
+{
+	var wpns = getRepelWeapons(atkWpn, t);
+	var arr = [];
+
+	for (var i = 0; i < wpns.length; i++)
+	{
+		for (var j = 0; j < wpns[i][ids.NBR_ATKS]; j++)
+		{
+			arr.push(wpns[i]);
+		}
 	}
 
 	return arr;
@@ -1930,6 +2069,26 @@ function getUnusableParts(bodypart, t = this)
 	return unusable;
 }
 
+function getHitLocation(atkReach, t = this)
+{
+	var form = t[ids.FORM].findForm();
+	var arr = [];
+
+  for (var part in t[ids.PARTS])
+  {
+    var weight = 0;
+
+		weight = t[ids.PARTS][part].area * (form[ids.PARTS][part] - t[ids.PARTS][part][ids.NUMBER]);
+
+    for (var i = 0; i < weight; i++)
+    {
+      arr.push(part);
+    }
+  }
+
+  return arr[Math.floor((Math.random() * arr.length))];
+}
+
 function getGoldFactor(t = this)
 {
 	var baseFactor = t[ids.BASE_FACTORS][ids.GOLD];
@@ -1986,7 +2145,7 @@ function getSharesHealingFactor(t = this)
 	var baseFactor = t[ids.BASE_FACTORS][ids.HEALING];
 	var addedFactor = t[ids.FACTORS][ids.HEALING] || 0;
 	var share = (t[ids.SHARES][ids.HEALING] + 50) * 0.01 || 0.5;
-	var healing = ((baseFactor + addedFactor) / 100) * t[ids.MAX_HP];
+	var healing = ((baseFactor + addedFactor) / 100) * getTtlShapeHP(false, false, t);
 
 	if (t[ids.PROPS][ids.REGEN])
 	{
@@ -2007,7 +2166,7 @@ function getFinalHealingFactor(t = this)
 		baseFactor = 0;
 	}
 
-	var healing = ((baseFactor + addedFactor) / 100) * t[ids.MAX_HP];
+	var healing = ((baseFactor + addedFactor) / 100) * getTtlShapeHP(false, false, t);
 
 	if (t[ids.PROPS][ids.REGEN])
 	{
@@ -2029,7 +2188,36 @@ function getRecupFactor(t = this)
 	return ((baseFactor + addedFactor) / 60).truncate(decPlaces);
 }
 
-function getTtlHP(t = this)
+function getTtlShapeHP(withAfflictions = false, floored = true, t = this)
+{
+	var total = t[ids.MAX_HP];
+
+	if (t[ids.PROPS][ids.SECONDSHAPE])
+	{
+		var secondForm = ("f" + t[ids.PROPS][ids.SECONDSHAPE]).findForm();
+		total += secondForm[ids.MAX_HP] + (secondForm.getHPIncrement() * t[ids.HP_INC]);
+	}
+
+	else if (t[ids.PROPS][ids.FIRSTSHAPE])
+	{
+		var originalForm = ("f" + t[ids.PROPS][ids.FIRSTSHAPE]).findForm();
+		total += originalForm[ids.MAX_HP] + (originalForm.getHPIncrement() * t[ids.HP_INC]);
+	}
+
+	if (t[ids.AFFL] && t[ids.AFFL][ids.NEVER_HEAL_WOUND] && withAfflictions)
+	{
+		total = Math.floor(total * 0.8);
+	}
+
+	if (floored)
+	{
+		return Math.floor(total);
+	}
+
+	else return total;
+}
+
+function getTtlHP(floored = true, t = this)
 {
 	var total = t[ids.MAX_HP];
 
@@ -2038,14 +2226,20 @@ function getTtlHP(t = this)
 		total = Math.floor(total * 0.8);
 	}
 
-	return total;
+	if (floored)
+	{
+		return Math.floor(total);
+	}
+
+	else return total;
 }
 
-function getTtlProt(part, t = this)
+function getTtlProt(part, vsMagic = false, t = this)
 {
 	var form = t[ids.FORM].findForm();
 	var natural = t[ids.PROT][part] || 0;
 	var equipped = 0;
+	var total = 0;
 
 	for (var slot in form[ids.SLOTS])
 	{
@@ -2070,7 +2264,20 @@ function getTtlProt(part, t = this)
 		else natural++;
 	}
 
-	var total = (natural > 0) ? natural + equipped - ((natural * equipped) / 40) : equipped;
+	if (t[ids.PROPS][ids.INVUL] && vsMagic == false && natural < t[ids.PROPS][ids.INVUL])
+	{
+		natural = t[ids.PROPS][ids.INVUL];
+	}
+
+	if (t[ids.STATUS])
+	{
+		if (t[ids.STATUS][ids.BERSERK])
+		{
+			total += t[ids.STATUS][ids.BERSERK];
+		}
+	}
+
+	total += (natural > 0) ? natural + equipped - ((natural * equipped) / 40) : equipped;
 	return Math.floor(total);
 }
 
@@ -2083,7 +2290,20 @@ function getTtlAtt(wpnUsed, floored = true, t = this)
 {
 	var form = t[ids.FORM].findForm();
 	var lostEyes = getUnusableParts(ids.EYE, t);
-	var total = (t[ids.STATUS] && t[ids.STATUS][ids.FAT]) ? 0 - Math.floor(t[ids.STATUS][ids.FAT] / 20).lowerCap(0) : 0;
+	var total = 0;
+
+	if (t[ids.STATUS])
+	{
+		if (t[ids.STATUS][ids.FAT])
+		{
+			total -= Math.floor(t[ids.STATUS][ids.FAT] / 20).lowerCap(0);
+		}
+
+		if (t[ids.STATUS][ids.BERSERK])
+		{
+			total += t[ids.STATUS][ids.BERSERK];
+		}
+	}
 
 	if(t[ids.AFFL])
 	{
@@ -2136,14 +2356,27 @@ function getDualPen(t = this)
 		pen += weapons[i][ids.LENGTH];
 	}
 
-	return pen;
+	return (pen - (t[ids.PROPS][ids.AMBIDEXTROUS] || 0)).lowerCap(0);
 }
 
 function getTtlDef(floored = true, t = this)
 {
 	var form = t[ids.FORM].findForm();
 	var lostEyes = getUnusableParts(ids.EYE, t);
-	var total = (t[ids.STATUS] && t[ids.STATUS][ids.FAT]) ? 0 - Math.floor(t[ids.STATUS][ids.FAT] / 10).lowerCap(0) : 0;
+	var total = 0;
+
+	if (t[ids.STATUS])
+	{
+		if (t[ids.STATUS][ids.FAT])
+		{
+			total -= Math.floor(t[ids.STATUS][ids.FAT] / 10).lowerCap(0);
+		}
+
+		if (t[ids.STATUS][ids.BERSERK])
+		{
+			total -= t[ids.STATUS][ids.BERSERK];
+		}
+	}
 
 	if (t[ids.STATUS] && (t[ids.STATUS][ids.PARALYZED] || t[ids.STATUS][ids.UNCONSCIOUS] || t[ids.STATUS][ids.WEBBED]))
 	{
@@ -2187,6 +2420,14 @@ function getTtlStr(floored = true, t = this)
 {
 	var total = 0;
 
+	if (t[ids.STATUS])
+	{
+		if (t[ids.STATUS][ids.BERSERK])
+		{
+			total += t[ids.STATUS][ids.BERSERK];
+		}
+	}
+
 	if (t[ids.AFFL])
 	{
 		if (t[ids.AFFL][ids.CHEST_WOUND])
@@ -2222,6 +2463,14 @@ function getTtlMR(floored = true, t = this)
 function getTtlMor(floored = true, t = this)
 {
 	var total = 0;
+
+	if (t[ids.STATUS])
+	{
+		if (t[ids.STATUS][ids.BERSERK])
+		{
+			return 99;
+		}
+	}
 
 	if (t[ids.AFFL] && t[ids.AFFL][ids.BATTLE_FRIGHT])
 	{
@@ -2264,7 +2513,23 @@ function getTtlPrec(wpnUsed, floored = true, t = this)
 
 function getTtlEnc(t = this)
 {
-	var total = (t[ids.AFFL] && t[ids.AFFL][ids.CHEST_WOUND]) ? 5 : 0;
+	var form = t[ids.FORM].findForm();
+	var total = 0;
+
+	if (form[ids.ENC] <= 0)
+	{
+		return 0;
+	}
+
+	if (t[ids.STATUS])
+	{
+		if (t[ids.STATUS][ids.BERSERK])
+		{
+			total += 2;
+		}
+	}
+
+	total += (t[ids.AFFL] && t[ids.AFFL][ids.CHEST_WOUND]) ? 5 : 0;
 	return total += t[ids.ENC] + getSlotStat(t[ids.HANDS], ids.ENC) + getSlotStat(t[ids.HEAD], ids.ENC) + getSlotStat(t[ids.BODY], ids.ENC) + getSlotStat(t[ids.FEET], ids.ENC) + getSlotStat(t[ids.MISC], ids.ENC);
 }
 

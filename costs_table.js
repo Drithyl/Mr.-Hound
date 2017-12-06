@@ -41,7 +41,7 @@ var costsTable =
   [ids.ATK]: function(atk)
                           {
                             var incs = Math.abs(atk - 10);
-                            var cost = ((395 * incs) + (30 * Math.pow(incs, 2)) - (5 * Math.pow(incs, 3))) / 60;
+                            var cost = (12 * incs) + (0.75 * Math.pow(incs, 2));
 
                             if (atk >= 10)
                             {
@@ -54,7 +54,7 @@ var costsTable =
   [ids.DEF]: function(def)
                           {
                             var incs = Math.abs(def - 10);
-                            var cost = ((395 * incs) + (30 * Math.pow(incs, 2)) - (5 * Math.pow(incs, 3))) / 60;
+                            var cost = (8 * incs) + (0.75 * Math.pow(incs, 2));
 
                             if (def >= 10)
                             {
@@ -120,7 +120,7 @@ var costsTable =
 
                                 if (attack[ids.PROPS][ids.BONUS] && form[ids.SLOTS][ids.HANDS] == null)
                                 {
-                                  total[ids.GOLD] -= 10;
+                                  total[ids.GOLD] -= 10 * attack[ids.NBR_ATKS];
                                 }
 
                                 total = currency.add(total, atkCost);
@@ -134,7 +134,7 @@ var costsTable =
                                 var total = Object.assign({}, baseCurr);
                                 for (var p in paths)
                                 {
-                                  total[ids[p.toUpperCase() + "_G"]] = paths[p] * 10;
+                                  //total[ids[p.toUpperCase() + "_G"]] = paths[p] * 10;
                                 }
                                 return total;
                               },
@@ -178,7 +178,12 @@ var costsTable =
                                 var total = Object.assign({}, baseCurr);
                                 for (var p in form[ids.PROPS])
                                 {
-                                  if (p == ids.AWE && form[ids.PROPS][p] >= 0)
+                                  if (p == ids.AMBIDEXTROUS)
+                                  {
+                                    total[ids.GOLD] += this[ids.ATK](10 + Math.ceil(form[ids.PROPS][p] * 0.75))[ids.GOLD];
+                                  }
+
+                                  else if (p == ids.AWE && form[ids.PROPS][p] >= 0)
                                   {
                                     total[ids.GOLD] += 10 + (form[ids.PROPS][p] * 5);
                                     total[ids.ASTRAL_G] += 1 + form[ids.PROPS][p];
@@ -186,13 +191,20 @@ var costsTable =
 
                                   else if (p == ids.BERSERK)
                                   {
-                                    total[ids.GOLD] += form[ids.PROPS][p] * 6;
+                                    total[ids.GOLD] += 5 + (form[ids.PROPS][p] * 5);
                                   }
 
                                   else if (p == ids.COLD_AURA)
                                   {
                                     total[ids.GOLD] += 15;
                                     total[ids.WATER_G] += 2;
+                                  }
+
+                                  else if (p == ids.DISPLACEMENT)
+                                  {
+                                    total[ids.GOLD] += form[ids.PROPS][p];
+                                    total[ids.AIR_G] += 1;
+                                    total[ids.ASTRAL_G] += 1;
                                   }
 
                                   else if (p == ids.ETHEREAL)
@@ -215,6 +227,7 @@ var costsTable =
 
                                   else if (p == ids.GLAMOUR)
                                   {
+                                    total[ids.GOLD] += 10;
                                     total[ids.AIR_G] += 2;
                                   }
 
@@ -222,6 +235,12 @@ var costsTable =
                                   {
                                     total[ids.GOLD] += 15;
                                     total[ids.FIRE_G] += 2;
+                                  }
+
+                                  else if (p == ids.INVUL)
+                                  {
+                                    var diff = (form[ids.PROPS][ids.INVUL] - form.getHighestProt()).lowerCap(0);
+                                    total[ids.GOLD] += diff * 2;
                                   }
 
                                   else if (p == ids.POISON_BARBS || p == ids.POISON_SKIN)
@@ -287,6 +306,11 @@ var costsTable =
                                         total[ids.DEATH_G] += (form[ids.PROPS][p] / 10) * 2;
                                       }
 
+                                      else if (form[ids.PROPS][ids.ETHEREAL] && form[ids.PROPS][ids.UNDEAD] == null)
+                                      {
+                                        total[ids.ASTRAL_G] += (form[ids.PROPS][p] / 10) * 2;
+                                      }
+
                                       else if (form[ids.PROPS][ids.STONE])
                                       {
                                         total[ids.EARTH_G] += (form[ids.PROPS][p] / 10) * 2;
@@ -338,6 +362,12 @@ module.exports =
   calc: function(form, isShapechange = false)
   {
     var total = Object.assign({}, baseCurr);
+    var totalGems = 0;
+
+    if (form[ids.PROPS][ids.FIRSTSHAPE] && isShapechange == false)
+    {
+      return {};
+    }
 
     for (var key in costsTable)
     {
@@ -382,6 +412,7 @@ module.exports =
       {
         var decimals = total[type] - Math.floor(total[type]);
         total[type] = Math.floor(total[type]);
+        totalGems += total[type];
         total[ids.GOLD] = total[ids.GOLD] + (decimals * 7.5) || decimals * 7.5;
         currency.objTruncate(total, ids.GOLD, 5);
       }
@@ -394,7 +425,24 @@ module.exports =
 
     if (isShapechange == false)
     {
-      total = currency.subtract(total, {[ids.GOLD]: 164});
+      total = currency.subtract(total, {[ids.GOLD]: 172});
+
+      if (form[ids.CAT].indexOf(ids.STARTER) != -1)
+      {
+        total[ids.TRANSITION_POINTS] = 0;
+      }
+
+      /*else if (form[ids.PROPS][ids.UNDEAD] || form[ids.PROPS][ids.STONE])
+      {
+        total[ids.TRANSITION_POINTS] = 999;
+      }*/
+
+      else total[ids.TRANSITION_POINTS] = Math.round((total[ids.GOLD] || 0) / 50 + totalGems / 10);
+    }
+
+    if (total[ids.GOLD])
+    {
+      total[ids.GOLD] = Math.round(total[ids.GOLD]);
     }
 
     return total;

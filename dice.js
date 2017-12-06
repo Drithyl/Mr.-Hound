@@ -42,33 +42,14 @@ module.exports =
   //The Dom4 DRN is a 2d6 roll in which a result of 6 is exploded, but substracting 1 from it.
   DRN: function()
   {
-  	var die1 = Math.floor((Math.random() * 6) + 1);
-  	var die2 = Math.floor((Math.random() * 6) + 1);
-
-  	if (die1 == 6)
-  	{
-  		die1 += -1 + explodeDRN();
-  	}
-
-  	if (die2 == 6)
-  	{
-  		die2 += -1 + explodeDRN();
-  	}
-
-  	return die1 + die2;
+  	return explodeDRN() + explodeDRN();
   },
 
-  //The Dom4 drn works the same as the DRN, but is only 1d6. Used for dispells, for example.
-  drn: function()
+  DRNvsDRN: function(atkMod = 0, defMod = 0)
   {
-  	var die = Math.floor((Math.random() * 6) + 1);
-
-  	if (die1 == 6)
-  	{
-  		die1 += -1 + explodeDRN();
-  	}
-
-  	return die1;
+    drn1 = DRN();
+    drn2 = DRN();
+  	return {roll1: drn1 + atkMod, natRoll1: drn1, roll2: drn2 + defMod, natRoll2: drn2, diff: (drn1 + atkMod) - (drn2 + defMod)};
   }
 }
 

@@ -2,24 +2,9 @@ const ids = require("../../MrHound/Current/ids.js");
 const dice = require("../../MrHound/Current/dice.js");
 const event = require("../../MrHound/Current/emitter.js");
 const rw = require("../../MrHound/Current/reader_writer.js");
-
-var battleExpireTime = 1190000;	//after this amount of time a challenge will expire.
-var challengeExpireTime = 59000;	//after this amount of time a challenge will expire.
+const encounters = require("../../MrHound/Current/encounters.js");
 
 var limbDmgCap = 0.5;
-
-var challengerDefXP = 50;
-var offenderDefXP = 50;
-var dmgXPRate = 80;
-var lifeXPRate = 65;
-var dmgXPCap = 1;
-var xpAdjCons = 10;
-var xpAdjMult = 0.5;
-var xpAdjHighCap = 2.5;
-var xpAdjLowCap = 0.25;
-var xpAdjLvlMult = 1.05;
-
-var postRoundLimit = 20;
 var etherealChance = 75;
 
 //The area determines how big a chance it adds to it being hit,
@@ -34,9 +19,6 @@ var partSizes = {	[ids.HEAD]: {area: 4, height: 0},
 
 module.exports =
 {
-	battles: {},
-	challenges: {},
-
 	combatTest: function(challenger, offender, times = 1, returnStr = false)
 	{
 		var result = "";
@@ -46,9 +28,8 @@ module.exports =
 
 		for (var i = 0; i < times; i++)
 		{
-			this.battles[challenger.id] = this.createBattle("spar", challenger, offender);
-			this.battles[offender.id] = this.battles[challenger.id];
-			var battle = this.battles[challenger.id];
+			encounters.createBattle("spar", challenger, offender);
+			var battle = encounters.ongoing[challenger.id];
 
 			while (battle.status != "ended")
 			{
@@ -57,6 +38,7 @@ module.exports =
 					var res = resolveRound(battle.challenger, battle.offender, "attack", battle);
 					result += (returnStr) ? res : "";
 					battle.turnID = battle.offender.id;
+					battle.turnNbr++;
 				}
 
 				else
@@ -83,12 +65,11 @@ module.exports =
 			offenderXP += battle.offenderXP;
 			delete battle.challenger;
 			delete battle.offender;
-			delete this.battles[challenger.id];
-			delete this.battles[offender.id];
+			delete encounters.ongoing[challenger.id];
+			delete encounters.ongoing[offender.id];
 		}
 
 		rw.log("\nChallenger wins: " + wins.challenger + "\nOffender wins: " + wins.offender + "\nDraws: " + wins.draw);
-		rw.log("\nAverage Challenger XP: " + (challengerXP / times) + "\nAverage Offender XP: " + (offenderXP / times));
 		return result.replace(/\`\`\`\`\`\`/g, "\n");
 	},
 
@@ -161,46 +142,21 @@ module.exports =
 		message.channel.sendCode(null, msg);
 	},
 
-	createBattle: function(type, chllngr, offndr, stamp = Date.now())
-	{
-		var absChallenger = chllngr.abstract();
-		var absOffender = offndr.abstract();
-		var healed = (type == "duel") ? false : true;
-		absChallenger.battleReady(healed);
-		absOffender.battleReady(healed);
-
-		return obj =
-		{
-			mode: type, challenger: absChallenger, offender: absOffender,
-			challengerXP: challengerDefXP, offenderXP: offenderDefXP,
-			challengerHP: absChallenger[ids.CURR_HP], offenderHP: absOffender[ids.CURR_HP],
-			turnID: offndr.id, turnNbr: 1, timestamp: stamp
-		};
-	},
-
 	challenge: function (type, author, receiver)
 	{
 		//This is the target of the challenge responding!!
-		if (this.challenges[receiver.id] && this.challenges[receiver.id][author.id])
+		if (encounters.challenges[receiver.id] && encounters.challenges[receiver.id][author.id])
 		{
-			this.battles[receiver.id] = this.createBattle(this.challenges[receiver.id][author.id].mode, receiver, author, this.challenges[receiver.id][author.id].timestamp);
-			this.battles[author.id] = this.battles[receiver.id];
+			var acceptStr;
 
-			var acceptStr = author.name + " (" + author[ids.FORM].findForm().name.capitalize() + ", level " + author[ids.LVL] + ") " +
+			encounters.acceptChallenge(type, receiver, author);
+			acceptStr = author.name + " (" + author[ids.FORM].findForm().name.capitalize() + ", level " + author[ids.LVL] + ") " +
 											"accepted " + receiver.name + "'s (" + receiver[ids.FORM].findForm().name.capitalize() + ", level " + receiver[ids.LVL] + ") " +
-											this.battles[author.id].mode + " offer! The receiver of the challenge gets the first action.";
+											encounters.ongoing[author.id].mode + " offer! The receiver of the challenge gets the first action.";
 
-			delete this.challenges[receiver.id][author.id];
-			if (!Object.keys(this.challenges[receiver.id]).length)
+			if (encounters.ongoing[receiver.id].exposure == "private")
 			{
-				delete this.challenges[receiver.id];
-			}
-
-			this.updateExposure(this.battles[receiver.id]);
-
-			if (this.battles[receiver.id].exposure == "private")
-			{
-				acceptStr += " Since other battles are already ongoing, I will be sending the command results to both of you in private (but keep typing the commands in this channel).";
+				acceptStr += " Since other ongoing are already ongoing, I will be sending the command results to both of you in private (but keep typing the commands in this channel).";
 			}
 
 			return acceptStr;
@@ -208,7 +164,7 @@ module.exports =
 
 		else
 		{
-			this.challenges[author.id] = {[receiver.id]: {mode: type, timestamp: Date.now()}};
+			encounters.createChallenge(type, author, receiver);
 
 			return author.name + " (" + author[ids.FORM].findForm().name.capitalize() + ", level " + author[ids.LVL] + ") " +
 						" challenged " + receiver.name + "'s (" + receiver[ids.FORM].findForm().name.capitalize() + ", level " + receiver[ids.LVL] + ") " +
@@ -216,34 +172,22 @@ module.exports =
 		}
 	},
 
-	updateExposure: function (battle)
-	{
-		var battlesArr = Object.keys(this.battles);
-		if (battle.exposure == null && battlesArr.length > 2)
-		{
-			battle.exposure = "private";
-		}
-
-		else if (battlesArr.length && battlesArr.length <= 2)
-		{
-			battle.exposure = "public";
-		}
-	},
-
 	combat: function(action, actor, target)
 	{
 		var result = "";
-		var battle = this.battles[actor.id];
+		var battle;
 
-		if (battle == null)
+		if (encounters.ongoing[actor.id] == null)
 		{
-			battle = this.createBattle("simulation", actor, target);
+			encounters.createBattle("simulation", actor, target);
 		}
+
+		battle = encounters.ongoing[actor.id];
 
 		if ((actor.id !== battle.challenger.id && actor.id !== battle.offender.id) ||
 				(target.id !== battle.challenger.id && target.id !== battle.offender.id))
 		{
-			delete this.battles[actor.id]; delete this.battles[target.id];
+			delete encounters.ongoing[actor.id]; delete encounters.ongoing[target.id];
 			return "Something is wrong. At least one of the contenders in this battle is not the correct character. I am cancelling it.";
 		}
 
@@ -260,8 +204,8 @@ module.exports =
 		{
 			delete battle.challenger;
 			delete battle.offender;
-			delete this.battles[actor.id];
-			delete this.battles[target.id];
+			delete encounters.ongoing[actor.id];
+			delete encounters.ongoing[target.id];
 			event.e.emit("save", [actor.id, target.id]);
 			return result;
 		}
@@ -270,80 +214,22 @@ module.exports =
 		{
 			delete battle.challenger;
 			delete battle.offender;
-			delete battle;
+			delete encounters.ongoing[actor.id];
+			delete encounters.ongoing[target.id];
 			return result;
 		}
 
 		else
 		{
-			result += updateTurn(battle);
-
-			/*if (battle.auto[battle.turnID])
-			{
-				setTimeout(fuction(){})
-			}*/
-
+			result += battle.updateTurn();
 			return result;
 		}
 	},
-
-	cleanChallenges: function()
-	{
-		for (user in this.challenges)
-		{
-			for (var offer in this.challenges[user])
-			{
-				if (Date.now() >= this.challenges[user][offer].timestamp + challengeExpireTime)
-				{
-					delete this.challenges[user][offer];
-				}
-			}
-
-			if (!Object.keys(this.challenges[user]).length)
-			{
-				delete this.challenges[user];
-			}
-		}
-	},
-
-	cleanBattles: function(channel)
-	{
-		for (match in this.battles)
-		{
-			if (Date.now() >= this.battles[match].timestamp + battleExpireTime)
-			{
-				channel.send(endBattle(this.battles[match]));
-				delete this.battles[match];
-			}
-		}
-	}
 }
 
 /**********************************************************************************************************************
 **********************************************END OF EXPOSURE**********************************************************
 ***********************************************************************************************************************/
-
-//Update turn happens AFTER a round has finished
-function updateTurn(battle)
-{
-	if (battle == null)
-	{
-		return;
-	}
-
-	if (battle.offender.id == battle.turnID)
-	{
-		battle.turnID = battle.challenger.id;
-		return battle.challenger.name + "'s turn.";
-	}
-
-	else
-	{
-		battle.turnNbr++;
-		battle.turnID = battle.offender.id;
-		return ("Turn " + battle.turnNbr + " starts!").toBox() + battle.offender.name + "'s turn.";
-	}
-}
 
 function resolveRound(actor, target, action, battle)
 {
@@ -357,18 +243,46 @@ function resolveRound(actor, target, action, battle)
 	if (target[ids.PROPS][ids.HEAT_AURA])
 	{
 		var heatWpn = {[ids.DMG]: 3, [ids.PROPS]: {[ids.STUN]: true}};
-		result += ("Heat stroke. " + actor.applyDmg(applyResistances(heatWpn, ids.FIRE, actor), ids.FIRE, ids.BODY, true)).toBox();
+		var moddedDmg = applyResistances(heatWpn, ids.FIRE, actor);
+
+		if (moddedDmg > 0)
+		{
+			result += ("Heat stroke. " + actor.applyDmg(moddedDmg, ids.FIRE, ids.BODY, true)).toBox();
+		}
 	}
 
 	if (target[ids.PROPS][ids.COLD_AURA])
 	{
 		var coldWpn = {[ids.DMG]: 3, [ids.PROPS]: {[ids.STUN]: true}};
-		result += ("Extreme cold. " + actor.applyDmg(applyResistances(coldWpn, ids.COLD, actor), ids.COLD, ids.BODY, true)).toBox();
+		var moddedDmg = applyResistances(coldWpn, ids.COLD, actor);
+
+		if (moddedDmg > 0)
+		{
+			result += ("Extreme cold. " + actor.applyDmg(applyResistances(coldWpn, ids.COLD, actor), ids.COLD, ids.BODY, true)).toBox();
+		}
+	}
+
+	if (actor[ids.STATUS][ids.POISONED])
+	{
+		result += actor.tickPoison().toBox();
+	}
+
+	if (actor[ids.STATUS][ids.ON_FIRE])
+	{
+		result += actor.tickFire().toBox();
+	}
+
+	if (actor[ids.STATUS][ids.FREEZING])
+	{
+		result += actor.tickCold().toBox();
 	}
 
 	if (actor[ids.STATUS][ids.UNCONSCIOUS])
 	{
-		return (actor.name + " is still unconscious.").toBox() + actor.reinvigorate().toBox() + endRound(actor) + checkIfDead(actor, target, battle);
+		if (actor[ids.STATUS][ids.FAT] - 5 - actor.getTtlReinvig() >= 100)
+		{
+			return (actor.name + " is still unconscious.").toBox() + actor.reinvigorate().toBox() + endRound(actor) + checkIfDead(actor, target, battle);
+		}
 	}
 
 	if (actor[ids.STATUS][ids.PARALYZED])
@@ -386,12 +300,14 @@ function resolveRound(actor, target, action, battle)
 		if (target[ids.PROPS][ids.AWE])
 		{
 			var moraleRoll = dice.DRN() + actor.getTtlMor(true);
-			var difficulty = 10 + target[ids.PROPS][ids.AWE];
+			var difficulty = dice.DRN() + 10 + target[ids.PROPS][ids.AWE];
 
 			if (moraleRoll <= difficulty)
 			{
-				return actor.name + " is awe-struck (MRL Roll " + moraleRoll + " vs " + difficulty + ")." + actor.reinvigorate().toBox() + endRound(actor) + checkIfDead(actor, target, battle);
+				return (actor.name + " is awe-struck (MRL Roll " + moraleRoll + " vs " + difficulty + ").").toBox() + actor.reinvigorate().toBox() + endRound(actor) + checkIfDead(actor, target, battle);
 			}
+
+			else result += (actor.name + " overcomes the awe (MRL Roll " + moraleRoll + " vs " + difficulty + ").").toBox();
 		}
 
 		result += actor.reinvigorate().toBox() + attacks(getAttacks(actor.getWeapons()), actor, target, battle) + actor.addFatigue(actor.getTtlEnc()).toBox();
@@ -418,21 +334,6 @@ function endRound(actor)
 {
 	var result = "";
 
-	if (actor[ids.STATUS][ids.POISONED])
-	{
-		result += actor.tickPoison().toBox();
-	}
-
-	if (actor[ids.STATUS][ids.ON_FIRE])
-	{
-		result += actor.tickFire().toBox();
-	}
-
-	if (actor[ids.STATUS][ids.FREEZING])
-	{
-		result += actor.tickCold().toBox();
-	}
-
 	return result;
 }
 
@@ -445,7 +346,7 @@ function checkIfDead(actor, target, battle)
 	{
 		if (actor[ids.PROPS][ids.SECONDSHAPE])
 		{
-			result += actor.changeShape(actor[ids.PROPS][ids.SECONDSHAPE], Math.abs(actor[ids.CURR_HP])).toBox();
+			result += actor.changeShape(actor[ids.PROPS][ids.SECONDSHAPE], Math.abs(actor[ids.CURR_HP])).toBox() + checkIfDead(actor, target, battle);
 		}
 
 		else isFinished = true;
@@ -455,7 +356,7 @@ function checkIfDead(actor, target, battle)
 	{
 		if (target[ids.PROPS][ids.SECONDSHAPE])
 		{
-			result += target.changeShape(target[ids.PROPS][ids.SECONDSHAPE], Math.abs(target[ids.CURR_HP])).toBox();
+			result += target.changeShape(target[ids.PROPS][ids.SECONDSHAPE], Math.abs(target[ids.CURR_HP])).toBox() + checkIfDead(actor, target, battle);
 		}
 
 		else isFinished = true;
@@ -463,7 +364,7 @@ function checkIfDead(actor, target, battle)
 
 	if (isFinished)
 	{
-		return result += endBattle(battle);
+		return result += battle.endEncounter();
 	}
 
 	else
@@ -472,94 +373,26 @@ function checkIfDead(actor, target, battle)
 	}
 }
 
-function endBattle(battle)
-{
-	var result = ("The battle is stopped on turn " + battle.turnNbr + "!").toBox() +
-								battle.challenger.endEffects(postRoundLimit).toBox() +
-								battle.offender.endEffects(postRoundLimit).toBox();
-
-	if (battle.mode == "simulation")
-	{
-		battle.status = "ended";
-		return "";
-	}
-
-	result += checkWinner(battle).toBox();
-	battle.challengerXP = adjustXP(battle.challengerXP, battle.challenger, battle.challengerHP, battle.offender[ids.LVL]);
-	battle.offenderXP = adjustXP(battle.offenderXP, battle.offender, battle.offenderHP, battle.challenger[ids.LVL]);
-	result += (battle.challenger.raiseXP(battle.challengerXP) + " " + battle.offender.raiseXP(battle.offenderXP)).toBox();
-
-	if (battle.mode == "duel")
-	{
-		delete battle.challenger[ids.STATUS];
-		delete battle.offender[ids.STATUS];
-		battle.challenger.mergeAbstract();
-		battle.offender.mergeAbstract();
-	}
-
-	battle.status = "ended";
-	return result;
-}
-
-function checkWinner(battle)
-{
-	if (battle.challenger[ids.CURR_HP] <= 0 && battle.offender[ids.CURR_HP] <= 0)
-	{
-		battle.winner = 0;
-		return "#####IT'S A DRAW!#####";
-	}
-
-	else if (battle.challenger[ids.CURR_HP] <= 0)
-	{
-		battle.winner = battle.offender.id;
-		return "#####" + battle.offender.name + " IS VICTORIOUS!#####";
-	}
-
-	else if (battle.offender[ids.CURR_HP] <= 0)
-	{
-		battle.winner = battle.challenger.id;
-		return "#####" + battle.challenger.name + " IS VICTORIOUS!#####";
-	}
-
-	else if (battle.turnID == battle.challenger.id)
-	{
-		battle.winner = battle.offender.id;
-		return "#####" + battle.offender.name + " IS VICTORIOUS!#####";
-	}
-
-	else if (battle.turnID == battle.offender.id)
-	{
-		battle.winner = battle.challenger.id;
-		return "#####" + battle.challenger.name + " IS VICTORIOUS!#####";
-	}
-
-	else
-	{
-		return "#####NO WINNER COULD BE DECIDED! IT'S A DRAW!#####";
-	}
-}
-
 function attacks(attempts, atckr, dfndr, battle)
 {
 	var result = "";
 	var attackCount = {nbr: 0};
 	var repelCount = {nbr: 0};
-	var atckrXP = 0;
-	var dfndrXP = 0;
 
 	for (var i = 0; i < attempts.length; i++)
 	{
 		var atkStr = "";
 		var weapon = attempts[i];
 
-		if ((weapon[ids.PROPS][ids.REQ_LIFE] && dfndr[ids.PROPS][ids.LIFELESS]) ||
-				(weapon[ids.PROPS][ids.REQ_MIND] && dfndr[ids.PROPS][ids.MINDLESS]))
+		var verify = verifyArc(weapon, atckr, dfndr);
+		atkStr += verify.descr;
+
+		if (verify.success == false)
 		{
-			result += (weapon.name + " failed.").toBox();
+			result += atkStr.toBox();
 			continue;
 		}
 
-		//If the next attempt is an effect and not a weapon, it won't need to do any hit rolls, nor will be repelled
 		if (weapon.isNotEffect())
 		{
 			attackCount.nbr++;
@@ -582,106 +415,64 @@ function attacks(attempts, atckr, dfndr, battle)
 				}
 			}
 
-			if (weapon[ids.PROPS][ids.ONCE])
-			{
-				if (battle.mode == "duel")
-				{
-					atckr.unequipItem(weapon.id);
-				}
+			var hit = hitArc(weapon, atckr, dfndr, attackCount, repelCount, battle);
+			atkStr += hit.descr;
 
-				else atckr.dropItem(weapon.id);
-			}
-
-			var attackResult = attack(weapon, atckr, dfndr, attackCount.nbr);
-			atkStr += attackResult.descr;
-
-			//Miss
-			if (attackResult.diff <= 0)
-			{
-				result += atkStr.toBox();
-				continue;
-			}
-
-			if (dfndr[ids.PROPS][ids.FIRE_SHLD])
-			{
-
-			}
-
-			if (dfndr[ids.PROPS][ids.ETHEREAL] && weapon[ids.PROPS][ids.MAGIC] == null)
-			{
-				if (Math.floor((Math.random() * 100)) + 1 <= etherealChance)
-				{
-					result += (atkStr + "Ethereal negated the attack. ").toBox();
-					continue;
-				}
-			}
-
-			if (weapon[ids.ON_HIT] && weapon[ids.ON_HIT] !== "none")
-			{
-				//Add to the attack attempts array the on_hit effect of this weapon in the following index
-				attempts.splice(i + 1, 0, weapon.getOnHitEffect());
-			}
-		}
-
-		if (weapon[ids.PROPS][ids.MRN])
-		{
-			var MRresult = checkMR(weapon, dfndr);
-			atkStr += MRresult.descr;
-
-			if (MRresult.diff <= 0)
+			if (hit.success == false)
 			{
 				result += atkStr.toBox();
 				continue;
 			}
 		}
 
-		var isShieldHit = (attackResult) ? attackResult.isShieldHit : false;
-		var damageCalc = calcDmg(weapon, atckr, dfndr, isShieldHit);
-		var isStun = (weapon[ids.PROPS][ids.STUN]) ? true : false;
-
-		//Add a separation line after the damage roll to display the end results below
-		if (damageCalc.descr !== "")
+		if (weapon[ids.ON_HIT] && weapon[ids.ON_HIT] !== "none")
 		{
-			atkStr += damageCalc.descr + "\n" + "".width(80, false, "—") + "\n";
+			//Add to the attack attempts array the on_hit effect of this weapon in the following index
+			attempts.splice(i + 1, 0, weapon.getOnHitEffect());
 		}
 
-		if (damageCalc.amnt > 0)
+		if (weapon.isNotEffect() && dfndr[ids.PROPS][ids.FIRE_SHLD] && weapon[ids.LENGTH] < dfndr[ids.PROPS][ids.FIRE_SHLD])
 		{
-			if (dfndr[ids.STATUS][ids.TWIST_FATE])
-			{
-				delete dfndr[ids.STATUS][ids.TWIST_FATE];
-				result += (atkStr + "Twist Fate negated the damage. ").toBox();
-				continue;
-			}
-
-			if (weapon[ids.DMG_TYPE][ids.STUN] == null && weapon[ids.DMG_TYPE][ids.WEB] == null && weapon[ids.PROPS][ids.STUN] == null)
-			{
-				var xpCap = (dfndr[ids.MAX_HP] * dmgXPCap) - (dfndr[ids.MAX_HP] - dfndr[ids.CURR_HP]);
-				atckrXP += (damageCalc.amnt.cap(xpCap) / dfndr.getTtlHP()) * dmgXPRate;
-				dfndrXP += (damageCalc.amnt.cap(xpCap) / dfndr.getTtlHP()) * lifeXPRate;
-			}
-
-			if (weapon[ids.ON_DMG] && weapon[ids.ON_DMG] !== "none")
-			{
-				//Add to the attack attempts array the on_dmg effect of this weapon in the following index
-				attempts.splice(i + 1, 0, weapon.getOnDmgEffect());
-			}
-
-			atkStr += dfndr.applyDmg(damageCalc.amnt, damageCalc.type, damageCalc.hitLoc, isStun);
-
-			if (damageCalc.type.includes("drain"))
-			{
-				atkStr += atckr.drain(damageCalc.amnt, damageCalc.type);
-			}
+			var fireshld = (ids.FIRE_SHLD).findItem();
+			fireshld[ids.DMG] = dfndr[ids.PROPS][ids.FIRE_SHLD] - weapon[ids.LENGTH];
+			var shldDmg = damageArc(fireshld, dfndr, atckr, false);
+			atkStr += shldDmg.descr + "\n";
 		}
 
-		if (dfndr[ids.CURR_HP] <= 0)
+		var affect = affectArc(weapon, atckr, dfndr);
+		atkStr += affect.descr;
+
+		if (affect.success == false)
 		{
 			result += atkStr.toBox();
-			break;
+			continue;
 		}
 
-		if (atckr[ids.STATUS] && atckr[ids.STATUS][ids.FAT] >= 100)
+		if (weapon.isNotEffect() && dfndr[ids.PROPS][ids.POISON_BARBS] && weapon[ids.LENGTH] <= 1)
+		{
+			var barbs = (ids.POISON_BARBS).findItem();
+			var barbsDmg = damageArc(barbs, dfndr, atckr, false);
+			atkStr += barbsDmg.descr + "\n";
+		}
+
+		if (weapon.isNotEffect() && dfndr[ids.PROPS][ids.POISON_SKIN] && weapon[ids.LENGTH] <= 0)
+		{
+			var skin = (ids.POISON_BARBS).findItem();
+			var skinDmg = damageArc(skin, dfndr, atckr, false);
+			atkStr += skinDmg.descr + "\n";
+		}
+
+		var isShieldHit = (hit) ? hit.isShieldHit : false;
+		var damage = damageArc(weapon, atckr, dfndr, isShieldHit);
+		atkStr += damage.descr;
+
+		if (damage.success == true && weapon[ids.ON_DMG] && weapon[ids.ON_DMG] !== "none")
+		{
+			//Add to the attack attempts array the on_dmg effect of this weapon in the following index
+			attempts.splice(i + 1, 0, weapon.getOnDmgEffect());
+		}
+
+		if (dfndr[ids.CURR_HP] <= 0 || atckr[ids.STATUS][ids.FAT] >= 100)
 		{
 			result += atkStr.toBox();
 			break;
@@ -690,8 +481,6 @@ function attacks(attempts, atckr, dfndr, battle)
 		result += atkStr.toBox();
 	}
 
-	assignRoundXP(dfndr, dfndrXP, battle);
-	assignRoundXP(atckr, atckrXP, battle);
 	return result;
 }
 
@@ -709,6 +498,15 @@ function repels(attempts, rpler, atckr, count)
 		if (attackResult.diff <= 0)
 		{
 			continue;
+		}
+
+		if (atckr[ids.PROPS][ids.DISPLACEMENT])
+		{
+			if (Math.floor((Math.random() * 100)) + 1 <= atckr[ids.PROPS][ids.DISPLACEMENT])
+			{
+				result.descr += "Displacement negates. ";
+				continue;
+			}
 		}
 
 		if (atckr[ids.PROPS][ids.ETHEREAL] && weapon[ids.PROPS][ids.MAGIC] == null)
@@ -731,7 +529,7 @@ function repels(attempts, rpler, atckr, count)
 		}
 
 		var damageCalc = calcDmg(weapon, rpler, atckr, attackResult.isShieldHit, true);
-		result.descr += damageCalc.descr + atckr.reduceHP(damageCalc.amnt, damageCalc.type, damageCalc.hitLoc);
+		result.descr += atckr.reduceHP(damageCalc.amnt, damageCalc.type, damageCalc.hitLoc);
 	}
 
 	return result;
@@ -814,10 +612,241 @@ function checkMR(weapon, dfndr)
 	return {descr: description, diff: difference};
 }
 
+function verifyArc(weapon, atckr, dfndr)
+{
+	var result = {descr: "", success: false};
+
+	if ((weapon[ids.PROPS][ids.REQ_LIFE] && dfndr[ids.PROPS][ids.LIFELESS]) ||
+			(weapon[ids.PROPS][ids.REQ_MIND] && dfndr[ids.PROPS][ids.MINDLESS]))
+	{
+		result.descr += weapon.name + " failed.";
+		return result;
+	}
+
+	if (weapon[ids.PROPS][ids.RELOAD])
+	{
+		if (atckr[ids.STATUS][ids.RELOAD] && atckr[ids.STATUS][ids.RELOAD][weapon.id] !== undefined)
+		{
+			atckr[ids.STATUS][ids.RELOAD][weapon.id]++;
+
+			if (atckr[ids.STATUS][ids.RELOAD][weapon.id] >= weapon[ids.PROPS][ids.RELOAD])
+			{
+				delete atckr[ids.STATUS][ids.RELOAD][weapon.id];
+			}
+
+			result.descr += weapon.name + " is reloading.";
+			return result;
+		}
+
+		else
+		{
+			if (atckr[ids.STATUS][ids.RELOAD] == null)
+			{
+				atckr[ids.STATUS][ids.RELOAD] = {[weapon.id]: 0};
+			}
+
+			else atckr[ids.STATUS][ids.RELOAD][weapon.id] = 0;
+		}
+	}
+
+	result.success = true;
+	return result;
+}
+
+function repelArc(weapon, rpler, atckr, repelCount, battle)
+{
+	var result = {descr: "", success: false};
+	var attempts = rpler.getRepelWeapons(weapon);
+
+	if (weapon.isNotEffect() == false || weapon[ids.PROPS][ids.UNREPELLED] || !attempts.length ||
+		  rpler[ids.STATUS][ids.UNCONSCIOUS] || rpler[ids.STATUS][ids.PARALYZED] || rpler[ids.STATUS][ids.WEBBED])
+	{
+		return result;
+	}
+
+	for (var i = 0; i < attempts.length; i++)
+	{
+		var rplStr = "";
+		var verify = verifyArc(weapon, rpler, atckr);
+		rplStr += verify.descr;
+
+		if (verify.success == false)
+		{
+			result += rplStr;
+			continue;
+		}
+
+		repelCount.nbr++;
+		var hit = hitArc(weapon, rpler, atckr, {nbr: 0}, battle);
+		rplStr += hit.descr;
+
+		if (hit.success == false)
+		{
+			result.descr += rplStr;
+			continue;
+		}
+
+		var affect = affectArc(weapon, rpler, atckr);
+		rplStr += affect.descr;
+
+		if (affect.success == false)
+		{
+			result.descr += rplStr;
+			continue;
+		}
+
+		var repelResult = repel(rpler, atckr, hit.diff);
+		rplStr += repelResult.descr;
+
+		//Attack aborted
+		if (repelResult.diff <= 0)
+		{
+			result.descr += rplStr;
+			return result;
+		}
+
+		var isShieldHit = (hit) ? hit.isShieldHit : false;
+		var damage = damageArc(weapon, rpler, atckr, isShieldHit, true);
+		rplStr += damage.descr;
+
+		if (atckr[ids.CURR_HP] <= 0 || rpler[ids.STATUS][ids.FAT] >= 100)
+		{
+			result += rplStr;
+			break;
+		}
+
+		result += rplStr;
+	}
+
+	result.success = true;
+	return result;
+}
+
+function hitArc(weapon, atckr, dfndr, attackCount, battle)
+{
+	var result = {descr: "", success: false, diff: 0, isShieldHit: false};
+
+	//If the next attempt is an effect and not a weapon, it won't need to do any hit rolls, nor will be repelled
+	if (weapon.isNotEffect())
+	{
+		if (weapon[ids.PROPS][ids.ONCE])
+		{
+			if (battle.mode == "duel")
+			{
+				atckr.unequipItem(weapon.id);
+			}
+
+			else atckr.dropItem(weapon.id);
+		}
+
+		var attackResult = attack(weapon, atckr, dfndr, attackCount.nbr);
+		result.descr += attackResult.descr;
+		result.diff = attackResult.diff;
+		result.isShieldHit = attackResult.isShieldHit;
+
+		//Miss
+		if (attackResult.diff <= 0)
+		{
+			result.descr = result.descr;
+			return result;
+		}
+
+		if (dfndr[ids.STATUS][ids.GLAMOUR])
+		{
+			if (Math.floor((Math.random() * 100)) + 1 > 100 / (1 + dfndr[ids.STATUS][ids.GLAMOUR]))
+			{
+				result.descr = (result.descr + "The target hit was an illusion. ");
+				dfndr[ids.STATUS][ids.GLAMOUR]--;
+
+				if (dfndr[ids.STATUS][ids.GLAMOUR] <= 0)
+				{
+					delete dfndr[ids.STATUS][ids.GLAMOUR];
+					result.descr += "All images have been dispelled. ";
+				}
+
+				return result;
+			}
+		}
+
+		if (dfndr[ids.PROPS][ids.DISPLACEMENT])
+		{
+			if (Math.floor((Math.random() * 100)) + 1 <= dfndr[ids.PROPS][ids.DISPLACEMENT])
+			{
+				result.descr = (result.descr + "Displacement negated the attack. ");
+				return result;
+			}
+		}
+	}
+
+	result.success = true;
+	return result;
+}
+
+function affectArc(weapon, atckr, dfndr)
+{
+	var result = {descr: "", success: false};
+
+	if (dfndr[ids.PROPS][ids.ETHEREAL] && weapon[ids.PROPS][ids.MAGIC] == null)
+	{
+		if (Math.floor((Math.random() * 100)) + 1 <= etherealChance)
+		{
+			result.descr = "Ethereal negated the attack. ";
+			return result;
+		}
+	}
+
+	if (weapon[ids.PROPS][ids.MRN])
+	{
+		var MRresult = checkMR(weapon, dfndr);
+		result.descr += MRresult.descr;
+
+		if (MRresult.diff <= 0)
+		{
+			return result;
+		}
+	}
+
+	result.success = true;
+	return result;
+}
+
+function damageArc(weapon, atckr, dfndr, isShieldHit, isRepel = false)
+{
+	var result = {descr: "", success: false};
+	var damageCalc = calcDmg(weapon, atckr, dfndr, isShieldHit, isRepel);
+	var isStun = (weapon[ids.PROPS][ids.STUN]) ? true : false;
+
+	//Add a separation line after the damage roll to display the end results below
+	if (damageCalc.descr !== "")
+	{
+		result.descr += damageCalc.descr + "\n" + "".width(80, false, "—") + "\n";
+	}
+
+	if (damageCalc.amnt > 0)
+	{
+		if (dfndr[ids.STATUS][ids.TWIST_FATE])
+		{
+			delete dfndr[ids.STATUS][ids.TWIST_FATE];
+			result.descr += "Twist Fate negated the damage. ";
+			return result;
+		}
+
+		result.success = true;
+		result.descr += dfndr.applyDmg(damageCalc.amnt, damageCalc.type, damageCalc.hitLoc, isStun);
+
+		if (damageCalc.type.includes("drain"))
+		{
+			result.descr += atckr.drain(damageCalc.amnt, damageCalc.type);
+		}
+	}
+
+	return result;
+}
+
 function calcDmg (weapon, atckr, dfndr, isShieldHit, isRepel = false)
 {
 	var hitLocation = getHitLocation(weapon.length, atckr[ids.SIZE], dfndr);
-	var dmgType = pickDmgType(weapon[ids.DMG_TYPE]);
+	var dmgType = weapon.pickDmgType();
 	var dmgScore = getDmgScore(weapon, dmgType, isShieldHit, atckr, dfndr);
 	var dmgRoll = (dmgType != ids.POISON) ? dice.DRN() + dmgScore : dmgScore;
 
@@ -869,12 +898,6 @@ function calcDmg (weapon, atckr, dfndr, isShieldHit, isRepel = false)
 	}
 }
 
-function pickDmgType(dmgTypes)
-{
-	var arr = Object.keys(dmgTypes);
-	return arr[Math.floor((Math.random() * arr.length))];
-}
-
 function getDmgScore(weapon, dmgTypeApplied, isShieldHit, atckr, dfndr)
 {
 	var total = applyResistances(weapon, dmgTypeApplied, dfndr);
@@ -897,7 +920,7 @@ function applyResistances(weapon, dmgType, victim)
 {
 	var res = victim.getTtlRes(dmgType);
 
-	if (res != null && isNaN(res) == false && res > 0)
+	if (res != null && isNaN(res) == false)
 	{
 		var finalRes = (weapon[ids.PROPS][ids.STUN]) ? res * 2 : res;
 		return weapon[ids.DMG] - finalRes;
@@ -909,7 +932,8 @@ function applyResistances(weapon, dmgType, victim)
 function calcProt (roll, weapon, dfndr, hitLoc, dmgType)
 {
 	var result = {amnt: 0, descr: ""};
-	result.amnt += dfndr.getTtlProt(hitLoc);
+	var isMagicWpn = (weapon[ids.PROPS][ids.MAGIC]) ? true : false;
+	result.amnt += dfndr.getTtlProt(hitLoc, isMagicWpn);
 
 	if (weapon[ids.PROPS][ids.AN])
 	{
@@ -942,7 +966,7 @@ function calcProt (roll, weapon, dfndr, hitLoc, dmgType)
 function modDmg(victim, damage, dmgType, hitLoc, isStun = false)
 {
 	var result = {amnt: damage, descr: ""};
-	var maxLimbDmg = Math.floor(victim[ids.MAX_HP] * limbDmgCap).lowerCap(1);
+	var maxLimbDmg = Math.floor(victim[ids.MAX_HP] * 0.5).lowerCap(1);
 
 	if (dmgType == ids.BLUNT && (hitLoc.includes(ids.HEAD) || hitLoc.includes(ids.EYE)))
 	{
@@ -956,13 +980,13 @@ function modDmg(victim, damage, dmgType, hitLoc, isStun = false)
 		result.descr += "+25% DMG. ";
 	}
 
-	if ((dmgType == ids.BLUNT || dmgType == ids.PIERCE || dmgType == ids.SLASH) && victim[ids.PROPS]["RES_" + dmgType.toUpperCase()])
+	if ((dmgType == ids.BLUNT || dmgType == ids.PIERCE || dmgType == ids.SLASH) && victim[ids.PROPS][ids["RES_" + dmgType.toUpperCase()]()])
 	{
 		result.amnt = Math.floor(result.amnt * 0.5).lowerCap(1);
 		result.descr += "-50% DMG. ";
 	}
 
-	if ((hitLoc.includes(ids.ARM) || hitLoc.includes(ids.LEG) || hitLoc.includes(ids.WING)) && damage > maxLimbDmg && isStun == false && dmgType != ids.STUN && dmgType != ids.POISON)
+	if ((hitLoc.includes(ids.ARM) || hitLoc.includes(ids.LEG) || hitLoc.includes(ids.WING)) && result.amnt > maxLimbDmg && isStun == false && dmgType != ids.STUN && dmgType != ids.POISON)
 	{
 		result.amnt = maxLimbDmg;
 		result.descr += "Limb caps DMG. ";
@@ -1031,46 +1055,6 @@ function isCritical(dfndr, protDRN)
 
 		else return false;
 	}
-}
-
-function assignRoundXP(character, xp, battle)
-{
-	if (battle == null)
-	{
-		return;
-	}
-
-	if (character.id == battle.challenger.id)
-	{
-		battle.challengerXP += xp;
-	}
-
-	else if (character.id == battle.offender.id)
-	{
-		battle.offenderXP += xp;
-	}
-
-	else
-	{
-		rw.log("Something went wrong, no fitting candidate for counting XP could be found.");
-	}
-}
-
-function adjustXP(xpEarned, character, originalHP, oppLvl)
-{
-	var multiplier = ((xpAdjMult * oppLvl) + xpAdjCons) / ((xpAdjMult * ((2 * character[ids.LVL]) - oppLvl)) + xpAdjCons);
-
-	if (multiplier > xpAdjHighCap)
-	{
-		multiplier = xpAdjHighCap;
-	}
-
-	else if (multiplier < xpAdjLowCap)
-	{
-		multiplier = xpAdjLowCap;
-	}
-
-	return Math.floor(((xpEarned * multiplier) * Math.pow(xpAdjLvlMult, character[ids.LVL])));
 }
 
 //Finds the total attacks of a group of weapons and arranges them

@@ -124,7 +124,7 @@ module.exports =
     player[ids.FORM] = newForm.id;
     player.transaction(totalCost, -1);
     player[ids.TRANSITION_POINTS] -= transitionPCost;
-    return "You have successfully transitioned! You have now become a " + newForm.name.capitalize() + ". All the items you had equipped have been placed back into your vault. The ritual also healed all of your previous form's afflictions.";
+    return "You have successfully transitioned! You have now become a " + newForm.name.capitalize() + ". All the items you had equipped have been placed back into your vault. The ritual also healed all of your previous form's afflictions and your full HP. Make sure to redistribute your healing shares.";
   },
 
   price: function(form = null)
@@ -136,7 +136,7 @@ module.exports =
       var costs = costsTable.calc(form);
       costs.name = form.name;
       data[form.name] = costs;
-      return rw.printTable(data, null, ["name", ids.GOLD].concat(currency.gems));
+      return rw.printTable(data, null, ["name", ids.TRANSITION_POINTS, ids.GOLD].concat(currency.gems));
     }
 
     for (var f in this.list)
@@ -146,7 +146,24 @@ module.exports =
       data[this.list[f].name] = costs;
     }
 
-    return rw.printTable(data, null, ["name", ids.GOLD].concat(currency.gems));
+    return rw.printTable(data, null, ["name", ids.TRANSITION_POINTS, ids.GOLD].concat(currency.gems));
+  },
+
+  priceCSVTable: function()
+  {
+    for (var form in this.list)
+    {
+      var newCost = costsTable.calc(this.list[form]);
+
+      this.list[form][ids.TRANSITION_POINTS] = newCost[ids.TRANSITION_POINTS] || 0;
+      delete newCost[ids.TRANSITION_POINTS];
+
+      this.list[form].cost = {};
+      this.list[form].cost = Object.assign({}, newCost);
+
+    }
+
+    rw.saveTableToCSV("newForms.csv", this.list);
   },
 
 	find: function(identifier)
@@ -194,7 +211,38 @@ function defineForm()
 
     getHPIncrement: function()
     {
-      return Math.ceil(Math.log(this[ids.MAX_HP]) / Math.log(hpIncBase));
+      if (this[ids.PROPS][ids.SECONDSHAPE])
+      {
+        var secondForm = module.exports.find("f" + this[ids.PROPS][ids.SECONDSHAPE]);
+        var totalHP = this[ids.MAX_HP] + secondForm[ids.MAX_HP];
+        var originalShare = this[ids.MAX_HP] / totalHP;
+        return ((Math.log(totalHP) / Math.log(hpIncBase)) * originalShare).truncate(5);
+      }
+
+      else if (this[ids.PROPS][ids.FIRSTSHAPE])
+      {
+        var originalForm = module.exports.find("f" + this[ids.PROPS][ids.FIRSTSHAPE]);
+        var totalHP = this[ids.MAX_HP] + originalForm[ids.MAX_HP];
+        var secondShare = this[ids.MAX_HP] / totalHP;
+        return ((Math.log(totalHP) / Math.log(hpIncBase)) * secondShare).truncate(5);
+      }
+
+      else return ((Math.log(this[ids.MAX_HP]) / Math.log(hpIncBase))).truncate(5).lowerCap(3);
+    },
+
+    getHighestProt: function()
+    {
+      var highest = 0;
+
+      for (var part in this[ids.PROT])
+      {
+        if (this[ids.PROT][part] > highest)
+        {
+          highest = this[ids.PROT][part];
+        }
+      }
+
+      return highest;
     }
   };
 }
@@ -228,17 +276,7 @@ function calculateTransitionCost (player, currForm, newForm)
 
 function calculateCurrCost(player, currForm, newForm)
 {
-  var totalCost = {};
-
-  for (var currency in newForm.cost)
-  {
-    var diff = newForm.cost[currency] - currForm.cost[currency] || newForm.cost[currency];
-
-    if (diff > 0)
-    {
-      totalCost[currency] = totalCost[currency] + diff || diff;
-    }
-  }
+  var totalCost = currency.subtract(newForm.cost, currForm.cost);
 
   if (totalCost[ids.GOLD] == null || totalCost[ids.GOLD] < baseTransitionCost)
   {

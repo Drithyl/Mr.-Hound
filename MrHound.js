@@ -11,6 +11,7 @@ const members = require("../../MrHound/Current/members.js");
 const tasks = require("../../MrHound/Current/tasks.js");
 const currency = require("../../MrHound/Current/currency.js");
 const costsTable = require("../../MrHound/Current/costs_table.js");
+const encounters = require("../../MrHound/Current/encounters.js");
 const items = require("../../MrHound/Current/items.js").init();
 const forms = require("../../MrHound/Current/forms.js").init();
 const tracker = require("../../MrHound/Current/tracker.js").init();
@@ -179,6 +180,11 @@ bot.on("reconnecting", () =>
 	}
 });
 
+bot.on("warn", warning =>
+{
+	rw.log("WARN: " + warning);
+});
+
 bot.on("error", err =>
 {
 	rw.log("An error occurred. This is from the 'on.error' event.");
@@ -187,6 +193,11 @@ bot.on("error", err =>
 	{
 		owner.send("Something went wrong! " + err);
 	}
+});
+
+bot.on("debug", info =>
+{
+	rw.log("DEBUG: " + info);
 });
 
 //This simple piece of code catches those pesky unhelpful errors and gives you the line number that caused it!
@@ -356,18 +367,13 @@ bot.on('message', message =>
 			writeAndSend(message, forms.price(input.findForm()), "costs.txt");
 		}
 
+		else if (/^\?CSV$/.test(input))
+		{
+			forms.priceCSVTable();
+		}
+
 		else if (input === "?TEST")
 		{
-			for (var form in forms.list)
-			{
-				var newCost = costsTable.calc(forms.list[form]);
-				forms.list[form].cost = {};
-				forms.list[form].cost = Object.assign({}, newCost);
-			}
-
-			rw.saveTableToCSV("newForms.csv", forms.list);
-
-
 			/*fs.writeFile("trinkets.csv", rw.tableToCSV(items.list.trinkets), (err) =>
 	  	{
 	  		if (err)
@@ -382,8 +388,8 @@ bot.on('message', message =>
 	  		}
 	  	});*/
 
-			//writeAndSend(message, dom4.combatTest(player, members.list["130998654440833025"], 10, true), "Combat Test.txt");
-			//console.log(dom4.combatTest(player, members.list["130998654440833025"], 100));
+			//writeAndSend(message, dom4.combatTest(members.list["170866063246884864"], members.list["111244660667600896"], 1, true), "Combat Test.txt");
+			//console.log(dom4.combatTest(player, members.list["170866063246884864"], 100));
 		}
 
 		else if (player == null)
@@ -407,21 +413,21 @@ bot.on('message', message =>
 		{
 			var form = forms.find(player[ids.FORM]);
 			var intro = "You have " + player[ids.LVL_POINTS] + " level-up points to level up. Below are your level up choices:\n\n";
-			var msg = ("+1 HP increment (" + form.getHPIncrement().toString() + " HP): ").width(25) + player.nextLvlPointCost(player[ids.HP_INC], 0) + " point(s) (raised " + player[ids.HP_INC] + " times).\n";
+			var msg = ("+1 HP increment (" + form.getHPIncrement().toString() + " HP): ").width(32) + player.nextLvlPointCost(player[ids.HP_INC], 0) + " point(s) (raised " + player[ids.HP_INC] + " times).\n";
 
 			if (form[ids.CAT].indexOf(ids.ANIMAL) != -1 && form[ids.SLOTS][ids.FEET] == null)
 			{
-				msg += "+1 Nat. Protection: ".width(25) + player.nextLvlPointCost(player[ids.PROT][ids.BODY], form[ids.PROT][ids.BODY]) + " point(s) (raised " + (player[ids.PROT][ids.BODY] - form[ids.PROT][ids.BODY]) + " times).\n";
+				msg += "+1 Nat. Protection: ".width(32) + player.nextLvlPointCost(player[ids.PROT][ids.BODY], form[ids.PROT][ids.BODY]) + " point(s) (raised " + (player[ids.PROT][ids.BODY] - form[ids.PROT][ids.BODY]) + " times).\n";
 			}
 
-			msg += "+1 MR: ".width(25) + player.nextLvlPointCost(player[ids.MR], form[ids.MR]) + " point(s) (raised " + (player[ids.MR] - form[ids.MR]) + " times).\n" +
-						 "+1 Morale: ".width(25) + player.nextLvlPointCost(player[ids.MRL], form[ids.MRL]) + " point(s) (raised " + (player[ids.MRL] - form[ids.MRL]) + " times).\n" +
-						 "+1 Strength: ".width(25) + player.nextLvlPointCost(player[ids.STR], form[ids.STR]) + " point(s) (raised " + (player[ids.STR] - form[ids.STR]) + " times).\n";
+			msg += "+1 MR: ".width(32) + player.nextLvlPointCost(player[ids.MR], form[ids.MR]) + " point(s) (raised " + (player[ids.MR] - form[ids.MR]) + " times).\n" +
+						 "+1 Morale: ".width(32) + player.nextLvlPointCost(player[ids.MRL], form[ids.MRL]) + " point(s) (raised " + (player[ids.MRL] - form[ids.MRL]) + " times).\n" +
+						 "+1 Strength: ".width(32) + player.nextLvlPointCost(player[ids.STR], form[ids.STR]) + " point(s) (raised " + (player[ids.STR] - form[ids.STR]) + " times).\n";
 
 			message.author.send(intro + msg.toBox());
 		}
 
-		else if (dom4.battles[player.id])
+		else if (encounters.ongoing[player.id])
 		{
 			message.author.send("You must finish your ongoing duel or spar before you can do this (ongoing battles will expire after an hour).");
 			return;
@@ -487,6 +493,7 @@ bot.on('message', message =>
 				{
 					rw.log(player.name + " (id " + player.id + ") used the command: " + input);
 					message.channel.send(processPlayerCommands(player, input.split("?", 10)));
+					return;
 				}
 
 				else if (/^\?(UNEQUIP)$/.test(input))
@@ -511,14 +518,12 @@ bot.on('message', message =>
 						message.channel.send(player.unequipItem(input).toBox());
 					}
 				}
-
-				backupData(player.id);
 			}
 
 			catch (err)
 			{
 				rw.log("An error was caught while processing the following input: " + input + "\n\n" + err);
-				message.author.send("There was an error processing your request. Contact an Admin for more information.");
+				message.author.send("There was an error processing your request. Contact an Admin to help solve the issue.");
 			}
 		}
 	}
@@ -639,13 +644,13 @@ bot.on('message', message =>
 					return;
 				}
 
-				if (dom4.challenges[player.id])
+				if (encounters.challenges[player.id])
 				{
 					message.reply("You already sent a challenge. Wait for that one to be accepted or to expire (every minute).");
 					return;
 				}
 
-				if (dom4.battles[player.id])
+				if (encounters.ongoing[player.id])
 				{
 					message.reply("You already have an ongoing duel or spar, finish that one first.");
 					return;
@@ -664,7 +669,7 @@ bot.on('message', message =>
 			else if (/^\?AT+ACKS?\s/.test(input))
 			{
 				var target = verifyMember(message.mentions.users.first());
-				var battle = dom4.battles[player.id];
+				var battle = encounters.ongoing[player.id];
 
 				if (target == null)
 				{
@@ -704,7 +709,7 @@ bot.on('message', message =>
 						return;
 					}
 
-					dom4.updateExposure(battle);
+					battle.updateExposure();
 
 					if (battle.exposure == "private")
 					{
@@ -725,8 +730,8 @@ bot.on('message', message =>
 
 event.e.on("minute", () =>
 {
-	dom4.cleanChallenges();
-	dom4.cleanBattles(arenaChannel);
+	encounters.cleanChallenges();
+	encounters.cleanBattles(arenaChannel);
 
 	for (var id in members.list)
 	{
@@ -735,7 +740,7 @@ event.e.on("minute", () =>
 		var member = myGuild.members.get(id);
 		var originalHP = player[ids.CURR_HP];
 
-		if (dom4.battles[player.id] == null || dom4.battles[player.id].mode != "duel")
+		if (encounters.ongoing[player.id] == null || encounters.ongoing[player.id].mode != "duel")
 		{
 			if (player[ids.ACTIVE_EFF] && Object.keys(player[ids.ACTIVE_EFF]).length)
 			{
@@ -831,14 +836,350 @@ function writeAndSend(message, data, filename, path = "")
 	});
 }
 
+function testCharData(character)
+{
+	if (typeof character.name !== "string")
+	{
+		rw.log("This character's name has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character.id !== "string")
+	{
+		rw.log("This character's id has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.LVL]))
+	{
+		rw.log("This character's level has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.XP]))
+	{
+		rw.log("This character's XP has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.LVL_POINTS]))
+	{
+		rw.log("This character's level points have been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.TRANSITION_POINTS]))
+	{
+		rw.log("This character's transition points have been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.ACTIVE_EFF] !== "object" || character[ids.ACTIVE_EFF] == null)
+	{
+		rw.log("This character's active effects object has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.FORM] !== "string" || character[ids.FORM].includes("f") == false)
+	{
+		rw.log("This character's form has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.SIZE]))
+	{
+		rw.log("This character's size has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.BASE_FACTORS] !== "object" || character[ids.BASE_FACTORS] == null)
+	{
+		rw.log("This character's base factors object has been corrupted: " + character);
+		return false;
+	}
+
+	else if (isNaN(character[ids.BASE_FACTORS][ids.HEALING]))
+	{
+		rw.log("This character's healing base factor has been corrupted: " + character);
+		return false;
+	}
+
+	else if (isNaN(character[ids.BASE_FACTORS][ids.RECUP]))
+	{
+		rw.log("This character's recuperation base factor has been corrupted: " + character);
+		return false;
+	}
+
+	else if (isNaN(character[ids.BASE_FACTORS][ids.TRAIN]))
+ 	{
+		rw.log("This character's training base factor has been corrupted: " + character);
+		return false;
+	}
+
+	else if (isNaN(character[ids.BASE_FACTORS][ids.GOLD]))
+	{
+		rw.log("This character's gold base factor has been corrupted: " + character);
+		return false;
+	}
+
+	else if (isNaN(character[ids.BASE_FACTORS][ids.GEMS]))
+	{
+		rw.log("This character's gems base factor has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.FACTORS] !== "object")
+	{
+		rw.log("This character's factors object has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.SHARES] !== "object" || character[ids.SHARES] == null)
+	{
+		rw.log("This character's shares object has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.HP_INC]))
+	{
+		rw.log("This character's HP increments have been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.MAX_HP]))
+	{
+		rw.log("This character's max HP have been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.CURR_HP]))
+	{
+		rw.log("This character's current HP have been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.REM_HP]))
+	{
+		rw.log("This character's remainder HP have been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.AFFL] !== "object" || character[ids.AFFL] == null)
+	{
+		rw.log("This character's affliction object has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.PROT] !== "object" || character[ids.PROT] == null)
+	{
+		rw.log("This character's protection object has been corrupted: " + character);
+		return false;
+	}
+
+	else
+	{
+		for (key in character[ids.PROT])
+		{
+			if (isNaN(character[ids.PROT][key]))
+			{
+				rw.log(key + "'s protection has been corrupted: " + character);
+				return false;
+			}
+		}
+	}
+
+	if (isNaN(character[ids.MR]))
+	{
+		rw.log("This character's MR has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.MRL]))
+	{
+		rw.log("This character's morale has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.STR]))
+	{
+		rw.log("This character's strength has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.ATK]))
+	{
+		rw.log("This character's attack has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.DEF]))
+	{
+		rw.log("This character's defence has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.PREC]))
+	{
+		rw.log("This character's precision has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.ENC]))
+	{
+		rw.log("This character's encumbrance has been corrupted: " + character);
+		return false;
+	}
+
+	if (isNaN(character[ids.APS]))
+	{
+		rw.log("This character's APs have been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.PATHS] !== "object")
+	{
+		rw.log("This character's paths object has been corrupted: " + character);
+		return false;
+	}
+
+	if (typeof character[ids.PROPS] !== "object")
+	{
+		rw.log("This character's properties object has been corrupted: " + character);
+		return false;
+	}
+
+	else
+	{
+		for (key in character[ids.PROPS])
+		{
+			if (isNaN(character[ids.PROPS][key]) && typeof character[ids.PROPS][key] !== "string")
+			{
+				rw.log("Property " + key + " has been corrupted: " + character);
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+function testVaultData(vault)
+{
+	if (typeof vault.currency !== "object" || vault.currency == null)
+	{
+		rw.log("This vault's currency object has been corrupted: " + vault);
+		return false;
+	}
+
+	else
+	{
+		for (key in vault.currency)
+		{
+			if (isNaN(vault.currency[key]))
+			{
+				rw.log("This vault's " + key + " has been corrupted: " + vault);
+				return false;
+			}
+		}
+	}
+
+	if (typeof vault.armors !== "object" || typeof vault.consumables !== "object" ||
+			typeof vault.trinkets !== "object" || typeof vault.weapons !== "object")
+	{
+		rw.log("This vault's object has been corrupted.");
+		rw.log(vault);
+		return false;
+	}
+
+	for (key in vault.armors)
+	{
+		if (testItemData(key, vault.armors) == false)
+		{
+			rw.log("Full vault object below.");
+			rw.log(vault);
+			return false;
+		}
+	}
+
+	for (key in vault.consumables)
+	{
+		if (testItemData(key, vault.consumables) == false)
+		{
+			rw.log("Full vault object below.");
+			rw.log(vault);
+			return false;
+		}
+	}
+
+	for (key in vault.trinkets)
+	{
+		if (testItemData(key, vault.trinkets) == false)
+		{
+			rw.log("Full vault object below.");
+			rw.log(vault);
+			return false;
+		}
+	}
+
+	for (key in vault.weapons)
+	{
+		if (testItemData(key, vault.weapons) == false)
+		{
+			rw.log("Full vault object below.");
+			rw.log(vault);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+function testItemData(key, object)
+{
+	if (/^[actw]\d+/.test(key) == false)
+	{
+		rw.log("Item key " + key + " has been corrupted.");
+		return false;
+	}
+
+	else if (isNaN(object[key]))
+	{
+		rw.log("Item " + key + " amount has been corrupted.");
+		return false;
+	}
+
+	else return true;
+}
+
 function saveData(ids)
 {
 	if (Array.isArray(ids) && ids.length)
 	{
 		for (var i = 0; i < ids.length; i++)
 		{
-			rw.saveObj("vaults/" + ids[i], members.vault[ids[i]]);
-			rw.saveObj("characters/" + ids[i], members.list[ids[i]]);
+			rw.log("Saving data for " + ids[i]);
+			if (testCharData(members.list[ids[i]]) == false)
+			{
+				if (owner)
+				{
+					owner.send(ids[i] + "'s char data is corrupted, check the log!");
+				}
+
+				continue;
+			}
+
+			if (testVaultData(members.vault[ids[i]]) == false)
+			{
+				if (owner)
+				{
+					owner.send(ids[i] + "'s vault data is corrupted, check the log!");
+				}
+
+				continue;
+			}
+
+			rw.saveCharData("vaults/" + ids[i], members.vault[ids[i]]);
+			rw.saveCharData("characters/" + ids[i], members.list[ids[i]]);
 		}
 	}
 }
@@ -880,8 +1221,29 @@ function backupData(id)
 			return;
 		}
 
-		rw.saveObj("vaults/" + id, members.vault[id]);
-		rw.saveObj("characters/" + id, members.list[id]);
+		rw.log("Saving data for " + id);
+		if (testCharData(members.list[id]) == false)
+		{
+			if (owner)
+			{
+				owner.send(id + "'s char data is corrupted, check the log!");
+			}
+
+			return;
+		}
+
+		if (testVaultData(members.vault[id]) == false)
+		{
+			if (owner)
+			{
+				owner.send(id + "'s vault data is corrupted, check the log!");
+			}
+
+			return;
+		}
+
+		rw.saveCharData("vaults/" + id, members.vault[id]);
+		rw.saveCharData("characters/" + id, members.list[id]);
 	}
 }
 
@@ -889,12 +1251,34 @@ function saveAll()
 {
 	for (var id in members.list)
 	{
-		rw.saveObj("characters/" + id, members.list[id]);
+		rw.log("Saving char data for " + id);
+		if (testCharData(members.list[id]) == false)
+		{
+			if (owner)
+			{
+				owner.send(id + "'s char data is corrupted, check the log!");
+			}
+
+			continue;
+		}
+
+		rw.saveCharData("characters/" + id, members.list[id]);
 	}
 
 	for (var id in members.vault)
 	{
-		rw.saveObj("vaults/" + id, members.vault[id]);
+		rw.log("Saving vault data for " + id);
+		if (testVaultData(members.vault[id]) == false)
+		{
+			if (owner)
+			{
+				owner.send(id + "'s vault data is corrupted, check the log!");
+			}
+
+			continue;
+		}
+
+		rw.saveCharData("vaults/" + id, members.vault[id]);
 	}
 }
 

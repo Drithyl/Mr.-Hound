@@ -211,6 +211,12 @@ function defineWeapon()
       return "weapons";
     },
 
+    pickDmgType: function()
+    {
+    	var arr = Object.keys(this[ids.DMG_TYPE]);
+    	return arr[Math.floor((Math.random() * arr.length))];
+    },
+
     isNotEffect: function()
     {
       if (this[ids.CAT].indexOf("effects") == -1 || this[ids.CAT].indexOf("intrinsic") != -1)
@@ -223,12 +229,12 @@ function defineWeapon()
 
     isIntrinsic: function()
     {
-      if (this[ids.CAT].indexOf("intrinsic") != -1)
+      if (this[ids.CAT].indexOf("intrinsic") == -1)
       {
-        return true;
+        return false;
       }
 
-      else return false;
+      else return true;
     },
 
     getOnHitEffect: function()
