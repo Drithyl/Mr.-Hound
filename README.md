@@ -14,6 +14,11 @@ All files starting with "bot" and without a format "bot.acknowledgements", "bot.
 The token that the bot uses to log in to Discord has been hidden. The variable can be found in the MrHound.js code file.
 
 
+DIRECTORY STRUCTURE
+
+Node.js has to be installed two directories upwards from where all the files sit. This can of course be changed by altering the path of all the 'require' statements in each of the .js files. The starting point of those statements is the MrHound.js file, taken as the root.
+
+
 KNOWN BUGS:
 
 - It seems that when the characters have progressed enough that their stats get fairly large, something messes up with the save files, likely to do with NaN values and such. I never got around to fixing it since the interest for the arena had already faded and I had already decided to shut down the development.
