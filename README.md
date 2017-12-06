@@ -12,3 +12,8 @@ All .js files are the actual working code. The entry point is MrHound.js. It's a
 All files starting with "bot" and without a format "bot.acknowledgements", "bot.commands", etc are information files that the bot parses to send messages in chat. This could have been done much better in other formats, like JSON, but at the time I was unfamiliar with other options and just went with what worked (this is pretty much a staple of the entire project).
 
 The token that the bot uses to log in to Discord has been hidden. The variable can be found in the MrHound.js code file.
+
+
+KNOWN BUGS:
+
+- It seems that when the characters have progressed enough that their stats get fairly large, something messes up with the save files, likely to do with NaN values and such. I never got around to fixing it since the interest for the arena had already faded and I had already decided to shut down the development.
