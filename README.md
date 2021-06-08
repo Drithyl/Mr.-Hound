@@ -29,13 +29,13 @@ KNOWN BUGS:
 
 SAMPLE (LONG) DUEL OUTPUT:
 
-![Round 1](https://ibb.co/v3Dr3df)
-![Round 2-3](https://ibb.co/cTqBqBH)
-![Round 4](https://ibb.co/WnFjJ4v)
-![Round 5](https://ibb.co/myvcg7C)
-![Round 6-7](https://ibb.co/2YggJ9z)
-![Round 8](https://ibb.co/pj9vGrp)
-![Round 9-10](https://ibb.co/tXz7RGr)
-![Round 11](https://ibb.co/n6SysMR)
-![Round 12](https://ibb.co/R6vY6TF)
-![Round 13-end](https://ibb.co/fvyv25y)
+![Round 1](https://i.ibb.co/wSYbSQ8/1.png)
+![Round 2-3](https://i.ibb.co/GPm6m6L/2.png)
+![Round 4](https://i.ibb.co/b1LD9M5/3.png)
+![Round 5](https://i.ibb.co/JpxsgPR/4.png)
+![Round 6-7](https://i.ibb.co/tP88RG0/5.png)
+![Round 8](https://i.ibb.co/Zzk6t1C/6.png)
+![Round 9-10](https://i.ibb.co/dgtdZTY/7.png)
+![Round 11](https://i.ibb.co/PF8yZGt/8.png)
+![Round 12](https://i.ibb.co/xgCXgqk/9.png)
+![Round 13-end](https://i.ibb.co/TL7LkS7/10.png)
